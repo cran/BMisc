@@ -15,7 +15,7 @@ dropCovFromFormla(covs, formla)
 formula
 }
 \description{
-\code{compareBinary} drops some covariates from a formula;
+\code{dropCovFromFormla} adds drops some covariates from aformula;
   covs should be a list of variable names
 }
 \examples{

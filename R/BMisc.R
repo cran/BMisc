@@ -114,6 +114,8 @@ id2rownum <- function(id, data, idname) {
 #' @param Fx vector of the distribution function values
 #' @param sorted boolean indicating whether or not x is already sorted;
 #'  computation is somewhat faster if already sorted
+#' @param rearrange boolean indicating whether or not should monotize
+#'  distribution function
 #' @examples
 #' y <- rnorm(100)
 #' y <- y[order(y)]
@@ -123,12 +125,16 @@ id2rownum <- function(id, data, idname) {
 #' 
 #' @return ecdf
 #' @export
-makeDist <- function(x, Fx, sorted=FALSE) {
+makeDist <- function(x, Fx, sorted=FALSE, rearrange=FALSE) {
     if (!sorted) {
         tmat <- cbind(x, Fx)
         tmat <- tmat[order(x),]
         x <- tmat[,1]
         Fx <- tmat[,2]
+    }
+
+    if (rearrange) {
+        Fx <- sort(Fx)
     }
     
     retF <- approxfun(x, Fx, method="constant",
@@ -319,6 +325,28 @@ cs2panel <- function(cs1, cs2, yname) {
 #' @return matrix of results
 #' @export
 compareBinary <- function(x, on, dta, w=rep(1,nrow(dta)), report=c("diff","levels","both")) {
+    if (class(dta[,x]) == "factor") {
+        df <- model.matrix(as.formula(paste0("~",x,"-1")), dta)
+        vnames <- colnames(df)
+        df <- data.frame(cbind(df, dta[,on]))
+        colnames(df) <- c(vnames, "treat")
+        t(simplify2array(lapply(vnames, compareSingleBinary, on="treat", dta=df, w=w, report=report)))
+    } else {
+        compareSingleBinary(x, on, dta, w, report)
+    }
+}
+
+#' @title compareSingleBinary
+#'
+#' @description \code{compareBinary} ##takes in a variable e.g. union
+#' and runs bivariate regression of x on treatment (for summary statistics)
+#'
+#' @inheritParams compareBinary
+#' 
+#' @return matrix of results
+#' 
+#' @keywords internal
+compareSingleBinary <- function(x, on, dta, w=rep(1,nrow(dta)), report=c("diff","levels","both")) {
     coefmat <- summary(lm(as.formula(paste(x, on ,sep=" ~ ")), data=dta,
                           weights=w))$coefficients
     if (report=="diff") {
@@ -337,8 +365,40 @@ compareBinary <- function(x, on, dta, w=rep(1,nrow(dta)), report=c("diff","level
 
 ##drop some covariates from a formula
 ##covs should be a list of variable names
+#' @title addCovToFormla
+#' @description \code{addCovFromFormla} addssome covariates to a formula;
+#'   covs should be a list of variable names
+#'
+#' 
+#' @param covs should be a list of variable names
+#' @param formla which formula to add covariates to
+#' @return formula
+#'
+#' @examples
+#' formla <- y ~ x 
+#' addCovToFormla(list("w","z"), formla)
+#'
+#' formla <- ~x
+#' addCovToFormla("z", formla)
+#' 
+#' @export
+addCovToFormla <- function(covs, formla) {
+    vs <- formula.tools::rhs.vars(formla) ## vector of x variable names
+    vs <- c(vs, covs)
+    newformla <- paste(vs, collapse="+")
+    newformla <- paste("~", newformla)
+    newformla <- as.formula(newformla)
+    leftside <- formula.tools::lhs(formla) ## seems like bug in formula.tools is reason why need to do this
+    formula.tools::rhs(formla) <- formula.tools::rhs(newformla)
+    formula.tools::lhs(formla) <- leftside
+    return(formla)
+}
+
+
+##add some covariates to a formula
+##covs should be a list of variable names
 #' @title dropCovFromFormla
-#' @description \code{compareBinary} drops some covariates from a formula;
+#' @description \code{dropCovFromFormla} adds drops some covariates from aformula;
 #'   covs should be a list of variable names
 #'
 #' 
@@ -362,8 +422,6 @@ dropCovFromFormla <- function(covs, formla) {
     formula.tools::rhs(formla) <- formula.tools::rhs(newformla)
     return(formla)
 }
-
-
 
 
 
