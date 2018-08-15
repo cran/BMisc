@@ -1,7 +1,7 @@
-791966ab5e00be83c973b009fed7b24f *DESCRIPTION
+34829334ccc0f95e653bf7f1f65488c5 *DESCRIPTION
 c4d3e1cad0089ffd5f7cf13f6895ca07 *NAMESPACE
-0563766f83611308a0f7bc8544e1e490 *NEWS.md
-32ef92c5f86b0a3cf17dcdc542def838 *R/BMisc.R
+4f0d51349e2e299e689f5aa12651b45d *NEWS.md
+74f25955a89a178d9461fa2ceaac14f9 *R/BMisc.R
 d9307b28d59301aa26cf991462d3fd2a *R/imports.R
 54b6b4b5ee8124f5b92e92af2f4a770e *README.md
 09e43918edc9b2baea9d22ccf289b406 *man/BMisc.Rd
@@ -24,7 +24,7 @@ b3423e7799de50b61c957c489ab5b713 *man/getWeightedQuantile.Rd
 c5c2a3995cee59c636c8c589a2372437 *man/makeDist.Rd
 b995cf6e8e1d9ea32a93b54cce74f2ee *man/panel2cs.Rd
 e687db746d523d50de0b26dbaae400ed *man/rhs.Rd
-4b26d622f9a96106f366960bd2f2c84e *man/rhs.vars.Rd
+503ce220be78e237a38ad967c87be36e *man/rhs.vars.Rd
 579d842eedb53a1bd006f58e5fe40bd7 *man/subsample.Rd
-4c3264da687646978c116794aa884559 *man/toformula.Rd
+d281b1fa935935246c891fce17c1cf03 *man/toformula.Rd
 31dce576a74172828f166dbce339e0fe *man/weighted.checkfun.Rd

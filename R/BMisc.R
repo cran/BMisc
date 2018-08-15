@@ -410,14 +410,17 @@ compareSingleBinary <- function(x, on, dta, w=rep(1,nrow(dta)), report=c("diff",
 #' ff <- yvar ~ x1 + x2
 #' rhs.vars(ff)
 #'
+#' ff <- y ~ x1 + I(x1^2)
+#' rhs.vars(ff)
+#' 
 #' @return vector of variable names
 #' @export
 rhs.vars <- function(formla) {
-  allvars <- all.vars(formla)
-  if (length(formla)==3) {
-    allvars <- allvars[-1]
-  }
-  allvars
+  ## allvars <- all.vars(formla)
+  ## if (length(formla)==3) {
+  ##   allvars <- allvars[-1]
+  ## }
+  labels(terms(formla))
 }
 
 #' @title lhs.vars
@@ -467,14 +470,20 @@ rhs <- function(formla) {
 #' @examples
 #' toformula("yvar", c("x1","x2"))
 #'
+#' ## should return yvar ~ 1
+#' toformula("yvar", rhs.vars(~1))
+#'
 #' @return a formula
 #' @export
 toformula <- function(yname, xnames) {
-  out <- paste0(yname,"~")
-  xpart <- paste0(xnames, collapse="+")
-  out <- paste0(out,xpart)
-  out <- as.formula(out)
-  out
+    if (length(xnames)==0) {
+        return(as.formula(paste0(yname," ~ 1")))
+    }
+    out <- paste0(yname,"~")
+    xpart <- paste0(xnames, collapse="+")
+    out <- paste0(out,xpart)
+    out <- as.formula(out)
+    out
 }
 
 #' @title addCovToFormla
