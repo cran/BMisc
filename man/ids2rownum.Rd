@@ -2,7 +2,7 @@
 % Please edit documentation in R/BMisc.R
 \name{ids2rownum}
 \alias{ids2rownum}
-\title{ids2rownum}
+\title{Convert Vector of ids into Vector of Row Numbers}
 \usage{
 ids2rownum(ids, data, idname)
 }
@@ -17,7 +17,7 @@ ids2rownum(ids, data, idname)
 vector of row numbers
 }
 \description{
-ids2rownum takes a vector of ids and converts it t the right
+ids2rownum takes a vector of ids and converts it to the right
  row number in the dataset; ids should be unique in the dataset
  that is, don't pass the function panel data with multiple same ids
 }
