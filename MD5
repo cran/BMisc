@@ -1,7 +1,7 @@
-543e98e1588ad6b2d00be5f2b4d6b5e9 *DESCRIPTION
-8bae6fcec642401087582d600471b68a *NAMESPACE
-a6a2cb53a2f6698f75ea5ed4146a2556 *NEWS.md
-33126aa57e74299fb0021c744a92f6c6 *R/BMisc.R
+37b3939ad0e123ba7367f5da9fda3eaa *DESCRIPTION
+19dc61385fffe7c23c624d17c6a115b4 *NAMESPACE
+63a4d34ab15c1f658a2f9f2cfbb46b36 *NEWS.md
+7d95c16b70e652107cad11d1a939359d *R/BMisc.R
 64d86818a8d670dc11f74c3231ac054a *R/imports.R
 54b6b4b5ee8124f5b92e92af2f4a770e *README.md
 63f8c80d7e8a99201ba5a3f63ae6520d *man/BMisc.Rd
@@ -25,6 +25,7 @@ c4f5d63946ba35653753a4c3cb1fc327 *man/getWeightedMean.Rd
 267ab323e46376423e069f15f37fd271 *man/makeBalancedPanel.Rd
 c6ead58a53a7bdc56f7df37f3e8bd83a *man/makeDist.Rd
 705ec9c0afa7401e3a932a0b46e316e1 *man/panel2cs.Rd
+76e3045a64446e6a77a7afc0e82baa73 *man/panel2cs2.Rd
 273c8e973eb427394d412ce2641b47ce *man/rhs.Rd
 507d6ccfaf3ca7042a656bcee7fa172c *man/rhs.vars.Rd
 4001461fbf156990b443ab4a3914e1bb *man/subsample.Rd
