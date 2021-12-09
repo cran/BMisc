@@ -17,6 +17,13 @@
 #' @return data.frame that is a balanced panel
 #' @export
 makeBalancedPanel <- function(data, idname, tname) {
+  if ("tbl" %in% class(data)) {
+    data <- as.data.frame(data)
+  }
+  if (!all(class(data)=="data.frame")) {
+    stop("data must be a data.frame")
+  }
+  
   nt <- length(unique(data[,tname]))
   agg <- aggregate(data[,idname], by=list(data[,idname]), length)
   rightids <- agg[,1][agg[,2]==nt]
@@ -81,20 +88,24 @@ panel2cs <- function(data, timevars, idname, tname) {
 #' @param yname name of outcome variable that can change over time
 #' @param idname unique id
 #' @param tname time period name
+#' @param balance_panel whether to ensure that panel is balanced.  Default is TRUE, but code runs somewhat
+#'  faster if this is set to be FALSE.
 #' 
-#' @return data from first period with y0 (outcome in first period),
-#'  y1 (outcome in second period), and dy (change in outcomes
+#' @return data from first period with .y0 (outcome in first period),
+#'  .y1 (outcome in second period), and .dy (change in outcomes
 #'  over time) appended to it
 #' @export
-panel2cs2 <- function(data, yname, idname, tname) {
+panel2cs2 <- function(data, yname, idname, tname, balance_panel=TRUE) {
 
   # check that only 2 periods of data
   if (length(unique(data[,tname])) != 2) {
     stop("panel2cs only for 2 periods of panel data")
   }
 
-  # balance the data, just in case 
-  data <- makeBalancedPanel(data, idname, tname)
+  # balance the data, just in case
+  if (balance_panel) {
+    data <- makeBalancedPanel(data, idname, tname)
+  }
   data <- data[order(data[,idname], data[,tname]),]
 
   # dataset that contains original and change, will merge into return
@@ -103,8 +114,8 @@ panel2cs2 <- function(data, yname, idname, tname) {
   if (ncol(inner.data) != 3) {
     stop("something unexpected has happened...")
   }
-  colnames(inner.data) <- c(idname, "y0", "y1")
-  inner.data$dy <- inner.data$y1 - inner.data$y0
+  colnames(inner.data) <- c(idname, ".y0", ".y1")
+  inner.data$.dy <- inner.data$.y1 - inner.data$.y0
   
   # construct data for first period only to be returned
   first.period <- min(data[,tname])
@@ -641,6 +652,7 @@ dropCovFromFormla <- function(covs, formla) {
 #' @param pstrat a vector of weights to put on each distribution function;
 #'  if weights are not provided then equal weight is given to each
 #'  distribution function
+#' @param ... additional arguments that can be past to BMisc::makeDist
 #'
 #' @examples
 #' x <- rnorm(100)
@@ -654,7 +666,7 @@ dropCovFromFormla <- function(covs, formla) {
 #' 
 #' @return ecdf
 #' @export
-combineDfs <- function(y.seq, dflist, pstrat=NULL) {
+combineDfs <- function(y.seq, dflist, pstrat=NULL, ...) {
   if (is.null(pstrat)) {
     pstrat <- rep(1/length(dflist), length(dflist))
   }            
@@ -668,7 +680,7 @@ combineDfs <- function(y.seq, dflist, pstrat=NULL) {
 
   df.vals <- rowSums(df.valsmat)
   
-  makeDist(y.seq, df.vals)
+  makeDist(y.seq, df.vals, ...)
 }
 
 #' @title Subsample of Observations from Panel Data
@@ -791,6 +803,32 @@ getListElement <- function(listolists, whichone=1) {
   lapply(listolists, function(l) l[[whichone]])
 }
 
+#' @title source_all
+#'
+#' @description Source all the files in a folder
+#'
+#' @param fldr path to a folder
+#'
+#' @export
+source_all <- function(fldr) {
+  sapply(paste0(fldr,list.files(fldr)), source)
+}
 
-
-
+#' @title TorF
+#' @description A function to replace NA's with FALSE in vector of logicals
+#' @param cond a vector of conditions to check
+#' @param use_isTRUE whether or not to use a vectorized version
+#'  of isTRUE.  This is generally slower but covers more cases.
+#' @return logical vector
+#'
+#' @export
+TorF <- function(cond, use_isTRUE=FALSE) {
+  if (!is.logical(cond)) stop("cond should be a logical vector")
+  
+  if (use_isTRUE) {
+    cond <- sapply(cond, isTRUE)
+  } else {  
+    cond[is.na(cond)] <- FALSE
+  }
+  cond
+}
