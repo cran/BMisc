@@ -1,7 +1,7 @@
-c95868768dab96b2415936e88d909213 *DESCRIPTION
+e83422a97ab40e8088a54009736b6507 *DESCRIPTION
 f29cdc12fe8094394df29a6ca7d2b32b *NAMESPACE
-60ed7f43dbdc33e5fa46f9f6bc1a1b01 *NEWS.md
-1d1791234f48662e1d7698bc746eb969 *R/BMisc.R
+cf4b5f8722115d63d89057d45c202a7d *NEWS.md
+efee5649fb878287d6e76faa48f3cfec *R/BMisc.R
 5509548efa05f025990e3375ee65692d *R/RcppExports.R
 1e27c78ebff9bdfd0ccdb6f3d483ac02 *R/imports.R
 b8a7af1dd0c58a426a8cadd004a09237 *R/utils-data-table.R
@@ -9,7 +9,7 @@ ae0e676d29d573d3f99f3606f410617c *README.md
 63f8c80d7e8a99201ba5a3f63ae6520d *man/BMisc.Rd
 ff8bdd248d18a6763ac28226cc0dfd3e *man/TorF.Rd
 91b748cd7ce52efa2d4188917b31b180 *man/addCovToFormla.Rd
-bb8288d2799d3f800a2140583a5b2ab6 *man/blockBootSample.Rd
+a8a11e0a0a4dc6179c877ca8ef25f837 *man/blockBootSample.Rd
 3602e5562ac41f3dec51369a81785ee1 *man/checkfun.Rd
 a6cf4ff88f081946ccc400d51b52f7c0 *man/combineDfs.Rd
 72667a3fd2cf8e783a60469d06587c5b *man/compareBinary.Rd
@@ -33,7 +33,7 @@ e512c6863ead55881be0f98b2c7b456b *man/multiplier_bootstrap.Rd
 273c8e973eb427394d412ce2641b47ce *man/rhs.Rd
 507d6ccfaf3ca7042a656bcee7fa172c *man/rhs.vars.Rd
 3033197b6190963cba07fce3eaa1bc58 *man/source_all.Rd
-4001461fbf156990b443ab4a3914e1bb *man/subsample.Rd
+069de92ae81e7f960b845e38506db62f *man/subsample.Rd
 c8d65a58a620c5db44ef1498852af255 *man/toformula.Rd
 1f4e19925d129e96b8d7aac3d05fa874 *man/weighted.checkfun.Rd
 fc2dafd0b2cb5463149688482b89a4bb *src/BMisc.cpp
