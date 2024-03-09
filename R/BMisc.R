@@ -6,17 +6,23 @@
 #' @param data data.frame used in function
 #' @param idname unique id
 #' @param tname time period name
+#' @param return_data.table if TRUE, makeBalancedPanel will
+#'  return a data.table rather than a data.frame.  Default
+#'  is FALSE.
 #' @examples
-#' id <- rep(seq(1,100), each = 2) ## individual ids for setting up a two period panel
-#' t <- rep(seq(1,2),100) ## time periods
-#' y <- rnorm(200) ## outcomes
-#' dta <- data.frame(id=id, t=t, y=y) ## make into data frame
-#' dta <- dta[-7,] ## drop the 7th row from the dataset (which creates an unbalanced panel)
+#' id <- rep(seq(1,100), each = 2) # individual ids for setting up a two period panel
+#' t <- rep(seq(1,2),100) # time periods
+#' y <- rnorm(200) # outcomes
+#' dta <- data.frame(id=id, t=t, y=y) # make into data frame
+#' dta <- dta[-7,] # drop the 7th row from the dataset (which creates an unbalanced panel)
 #' dta <- makeBalancedPanel(dta, idname="id", tname="t")
 #'
 #' @return data.frame that is a balanced panel
 #' @export
-makeBalancedPanel <- function(data, idname, tname) {
+makeBalancedPanel <- function(data,
+                              idname,
+                              tname,
+                              return_data.table=FALSE) {
   if (!inherits(data,"data.frame")) {
     stop("data must be a data.frame")
   }
@@ -24,7 +30,11 @@ makeBalancedPanel <- function(data, idname, tname) {
   data.table::setDT(data)
 
   nt <- length(unique(data[[tname]]))
-  return(data[, if (.N == nt) .SD, by = idname])
+  if (!return_data.table) {
+    return(as.data.frame(data[, if (.N==nt) .SD, by=idname]))
+  } else if (return_data.table) {
+    return(data[, if (.N == nt) .SD, by=idname])
+  }
 }
 
 
@@ -145,13 +155,13 @@ ids2rownum <- function(ids, data, idname) {
 }
 
 
-#'@title Take particular id and convert to row number
+#' @title Take particular id and convert to row number
 #'
-#' @description id2rownum takes an id and converts it t the right
+#' @description id2rownum takes an id and converts it to the right
 #'  row number in the dataset; ids should be unique in the dataset
 #'  that is, don't pass the function panel data with multiple same ids
 #'
-#' @param ids vector of ids
+#' @param id a particular id
 #' @param data data frame
 #' @param idname unique id
 #'
@@ -832,4 +842,228 @@ TorF <- function(cond, use_isTRUE=FALSE) {
     cond[is.na(cond)] <- FALSE
   }
   cond
+}
+
+
+#' @title get_group_inner
+#' @description Calculates the group for a particular unit
+#' @param this_df a data.frame, for this function it should be specific to
+#'  a particular unit
+#' @inheritParams get_group
+#' @keywords internal
+#' @export
+get_group_inner <- function(this_df, tname, treatname) {
+  if ( all(this_df[,treatname] == 0) ) return(0)
+
+  as.numeric( this_df[ this_df[,treatname] == 1, ][1,tname] )
+}
+
+#' @title get_group
+#' @description A function to calculate a unit's group in a panel data setting
+#'  with a binary treatment and staggered treatment adoption and where
+#'  there is a column in the data indicating whether or not a unit is treated
+#' @param df the data.frame used in the function
+#' @param idname name of column that holds the unit id
+#' @param tname name of column that holds the time period
+#' @param treatname name of column with the treatment indicator
+#' @export
+get_group <- function(df, idname, tname, treatname) {
+  group_vec <- df %>%
+    group_by(.data[[idname]]) %>%
+    group_map(~ rep(get_group_inner(.x, tname, treatname), nrow(.x))) %>%
+    unlist()
+  group_vec
+}
+
+#' @title get_YiGmin1_inner
+#' @description Calculates a units outcome (or also can be used for a covariate)
+#'  in the period right before it becomes treated.  The unit's group must
+#'  be specified at this point.  This function operates on a data.frame
+#'  that is already local to a particular unit.
+#' @param this_df a data.frame, for this function it should be specific to
+#'  a particular unit
+#' @inheritParams get_YiGmin1
+#' @keywords internal
+#' @export
+get_YiGmin1_inner <- function(this_df, yname, tname, gname) {
+  this_df <- as.data.frame(this_df)
+  maxT <- max(this_df[,tname])
+  this_group <- unique(this_df[,gname])
+  YiGmin1 <- ifelse(this_group==0,
+                    this_df[this_df[,tname]==maxT,yname],
+                    this_df[this_df[,tname]==(this_group-1),yname])
+  YiGmin1
+}
+
+#' @title get_YiGmin1
+#' @description A function to calculate outcomes for units in the period
+#'  right before they become treated (this function can also be used to recover
+#'  covariates, etc. in the period right before a unit becomes treated).
+#'  For units that do not
+#'  participate in the treatment (and therefore have group==0), they are
+#'  assigned their outcome in the last period.
+#' @param yname name of column containing the outcome (or other variable)
+#'  for which to calculate its outcome in the immediate pre-treatment period
+#' @param gname name of column containing the unit's group
+#' @inheritParams get_group
+#' @export
+get_YiGmin1 <- function(df, idname, yname, tname, gname) {
+  YiGmin1_vec <- df %>%
+    group_by(.data[[idname]]) %>%
+    group_map(~ rep(get_YiGmin1_inner(.x, yname, tname, gname), nrow(.x))) %>%
+    unlist()
+  YiGmin1_vec
+}
+
+#' @title get_Yi1_inner
+#' @description Calculates a units outcome in the first time period.
+#'  This function operates on a data.frame that is already local to a particular
+#'  unit.
+#' @inheritParams get_YiGmin1_inner
+#' @keywords internal
+#' @export
+get_Yi1_inner <- function(this_df, yname, tname, gname) {
+  this_df <- as.data.frame(this_df)
+  minT <- min(this_df[,tname])
+  Yi1 <- this_df[this_df[,tname]==minT,yname]
+  Yi1
+}
+
+#' @title get_Yi1
+#' @description A function to calculate outcomes for units in the first time
+#'  period that is available in a panel data setting (this function can also
+#'  be used to recover covariates, etc. in the first period).
+#' @inheritParams get_YiGmin1
+#' @export
+get_Yi1 <- function(df, idname, yname, tname, gname) {
+  Yi1_vec <- df %>%
+    group_by(.data[[idname]]) %>%
+    group_map(~ rep(get_Yi1_inner(.x, yname, tname, gname), nrow(.x))) %>%
+    unlist()
+  Yi1_vec
+}
+
+#' @title get_Yit_inner
+#' @description Calculates a units outcome in some particular period `tp`.
+#'  This function operates on a data.frame that is already local to a particular
+#'  unit.
+#' @inheritParams get_YiGmin1_inner
+#' @param tp The time period for which to get the outcome
+#' @keywords internal
+#' @export
+get_Yit_inner <- function(this_df, tp, yname, tname) {
+    this_df <- as.data.frame(this_df)
+    Yit <- this_df[this_df[,tname]==tp,yname]
+    Yit
+}
+
+#' @title get_Yit
+#' @description A function to calculate outcomes for units in a particular
+#'  time period `tp` in a panel data setting (this function can also
+#'  be used to recover covariates, etc. in the first period).
+#' @inheritParams get_YiGmin1
+#' @inheritParams get_Yit_inner
+#' @return a vector of outcomes in period t, the vector
+#'  will have the length nT (i.e., this is returned for
+#'  each element in the panel, not for a particular period)
+#' @export
+get_Yit <- function(df, tp, idname, yname, tname) {
+    Yit_vec <- df %>%
+        group_by(.data[[idname]]) %>%
+        group_map(~ rep(get_Yit_inner(.x, tp, yname, tname), nrow(.x))) %>%
+        unlist()
+    Yit_vec
+}
+
+#' @title get_Yibar_inner
+#' @description Calculates a units average outcome across all periods.
+#'  This function operates on a data.frame that is already local to a particular
+#'  unit.
+#' @inheritParams get_YiGmin1_inner
+#' @keywords internal
+#' @export
+get_Yibar_inner <- function(this_df, yname) {
+  this_df <- as.data.frame(this_df)
+  mean(this_df[,yname])
+}
+
+#' @title get_Yibar
+#' @description A function to calculate the average outcome across all time
+#' periods separately for each unit in a panel data setting (this function can also
+#'  be used to recover covariates, etc.).
+#' @inheritParams get_YiGmin1
+#' @export
+get_Yibar <- function(df, idname, yname) {
+  Yibar_vec <- df %>%
+    group_by(.data[[idname]]) %>%
+    group_map(~ rep(get_Yibar_inner(.x, yname), nrow(.x))) %>%
+    unlist()
+  Yibar_vec
+}
+
+#' @title get_Yibar_pre_inner
+#' @description Calculates a unit's average outcome in pre-treatment periods
+#'  (or also can be used for a covariate).  The unit's group must
+#'  be specified at this point.  This function operates on a data.frame
+#'  that is already local to a particular unit.
+#' @param this_df a data.frame, for this function it should be specific to
+#'  a particular unit
+#' @inheritParams get_YiGmin1_inner
+#' @keywords internal
+#' @export
+get_Yibar_pre_inner <- function(this_df, yname, tname, gname) {
+    this_df <- as.data.frame(this_df)
+    maxT <- max(this_df[,tname])
+    this_group <- unique(this_df[,gname])
+    Yibarpre <- ifelse(this_group==0,
+                      mean(this_df[,yname]),
+                      mean(this_df[this_df[,tname] < this_group, yname]) )
+    Yibarpre
+}
+
+#' @title get_Yibar_pre
+#' @description A function to calculate average outcomes for units in
+#'  their pre-treatment periods (this function can also be used to recover
+#'  pre-treatment averages of covariates, etc.).
+#'  For units that do not
+#'  participate in the treatment (and therefore have group==0), the
+#'  function calculates their overall average outcome.
+#' @param yname name of column containing the outcome (or other variable)
+#'  for which to calculate its outcome in the immediate pre-treatment period
+#' @param gname name of column containing the unit's group
+#' @inheritParams get_YiGmin1
+#' @export
+get_Yibar_pre <- function(df, idname, yname, tname, gname) {
+    YiGmin1_vec <- df %>%
+        group_by(.data[[idname]]) %>%
+        group_map(~ rep(get_Yibar_pre_inner(.x, yname, tname, gname), nrow(.x))) %>%
+        unlist()
+    YiGmin1_vec
+}
+
+#' @title get_lagYi
+#' @description A function that calculates lagged outcomes in a panel data setting.
+#'  If the data.frame that is passed in has nxT rows, the resulting vector will
+#'  also have nxT elements with one element for each unit set to be NA
+#' @inheritParams get_Yi1
+#' @param nlags The number of periods to lag.  The default is 1, which computes
+#'  the lag from the previous period.
+#' @export
+get_lagYi <- function(df, idname, yname, tname, nlags=1) {
+    df <- df %>%
+        dplyr::group_by(.data[[idname]]) %>%
+        dplyr::mutate(.lag=dplyr::lag(.data[[yname]],nlags,order_by=.data[[tname]]))
+    df$.lag
+}
+
+#' @title get_first_difference
+#' @description A function that calculates the first difference in a panel data
+#'  setting.  If the data.frame that is passed in has nxT rows, the resulting
+#'  vector will also have nxT elements with one element for each unit set to be
+#'  NA.
+#' @inheritParams get_lagYi
+#' @export
+get_first_difference <- function(df, idname, yname, tname) {
+    df$.lag <- get_lagYi(df, idname, yname, tname)
+    df[,yname] - df$.lag
 }
