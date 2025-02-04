@@ -2,26 +2,15 @@
 % Please edit documentation in R/BMisc.R
 \name{dropCovFromFormla}
 \alias{dropCovFromFormla}
-\title{Drop a Covariate from a Formula}
+\title{dropCovFromFormla}
 \usage{
 dropCovFromFormla(covs, formla)
 }
 \arguments{
 \item{covs}{should be a list of variable names}
-
-\item{formla}{which formula to drop covariates from}
-}
-\value{
-formula
 }
 \description{
-\code{dropCovFromFormla} adds drops some covariates from a
-formula; covs should be a list of variable names
+Legacy version of `drop_cov_from_formula`, please use
+ that function instead.  This function will eventually be deleted.
 }
-\examples{
-formla <- y ~ x + w + z
-dropCovFromFormla(list("w", "z"), formla)
-
-dropCovFromFormla("z", formla)
-
-}
+\keyword{internal}
