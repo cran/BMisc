@@ -8,7 +8,7 @@
 #' @import stats
 #' @importFrom dplyr group_by mutate %>% group_map select starts_with
 #' @importFrom tidyr pivot_wider
-#' @importFrom caret findLinearCombos
+#' @importFrom data.table .N .SD
 "_PACKAGE"
 
-NULL
+utils::globalVariables(c(".data", ".time"))

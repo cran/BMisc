@@ -51,6 +51,7 @@ makeBalancedPanel <- function(data,
                               idname,
                               tname,
                               return_data.table = FALSE) {
+  .Deprecated("make_balanced_panel")
   make_balanced_panel(
     data = data,
     idname = idname,
@@ -75,11 +76,17 @@ makeBalancedPanel <- function(data,
 #' @param idname unique id
 #' @param tname time period name
 #'
+#' @examples
+#' id <- rep(seq(1, 50), 2)
+#' t <- rep(seq(1, 2), each = 50)
+#' y <- rnorm(100)
+#' dta <- data.frame(id = id, t = t, y = y)
+#' out <- panel2cs(dta, timevars = "y", idname = "id", tname = "t")
+#' nrow(out)
+#'
 #' @return data.frame
 #' @export
 panel2cs <- function(data, timevars, idname, tname) {
-  # .Deprecated("panel2cs2")
-
   if (length(unique(data[, tname])) != 2) {
     stop("panel2cs only for 2 periods of panel data")
   }
@@ -120,9 +127,18 @@ panel2cs <- function(data, timevars, idname, tname) {
 #' @param balance_panel whether to ensure that panel is balanced.  Default is TRUE, but code runs somewhat
 #'  faster if this is set to be FALSE.
 #'
+#' @examples
+#' id <- rep(seq(1, 50), 2)
+#' t <- rep(seq(1, 2), each = 50)
+#' y <- rnorm(100)
+#' dta <- data.frame(id = id, t = t, y = y)
+#' out <- panel2cs2(dta, yname = "y", idname = "id", tname = "t")
+#' head(out[, c("id", ".y0", ".y1", ".dy")])
+#'
 #' @return data from first period with .y0 (outcome in first period),
 #'  .y1 (outcome in second period), and .dy (change in outcomes
 #'  over time) appended to it
+#' @importFrom data.table :=
 #' @export
 panel2cs2 <- function(data, yname, idname, tname, balance_panel = TRUE) {
   # check that only 2 periods of data
@@ -139,15 +155,20 @@ panel2cs2 <- function(data, yname, idname, tname, balance_panel = TRUE) {
   data.table::setDT(data)
   data.table::setorderv(data, cols = c(idname, tname))
 
-  # Trick to speed up by specializing for task at hand
-  # relies on being sorted by tname above
-  data$.y1 <- data.table::shift(data[[yname]], -1)
+  # Fast global shift is valid for balanced two-period panels.  In unbalanced
+  # panels, shift within id to avoid borrowing outcomes from the next unit.
+  if (balance_panel) {
+    data$.y1 <- data.table::shift(data[[yname]], -1)
+  } else {
+    data[, c(".y1") := data.table::shift(get(yname), -1), by = idname]
+  }
   data$.y0 <- data[[yname]]
   data$.dy <- data$.y1 - data$.y0
 
-  # Subset to first row
-  first.period <- min(data[[tname]])
-  data <- data[data[[tname]] == first.period, ]
+  # Subset to first period after computing the logical index explicitly.
+  first_period <- min(data[[tname]])
+  first_period_idx <- data[[tname]] == first_period
+  data <- data[first_period_idx, ]
 
   data
 }
@@ -221,10 +242,9 @@ id2rownum <- function(id, data, idname) {
 #'
 #' @export
 block_boot_sample <- function(data, idname) {
-  n <- nrow(data)
   ids <- sample(unique(data[, idname]), replace = TRUE)
-  newid <- seq(1:length(ids))
-  b1 <- lapply(1:length(ids), function(i) {
+  newid <- seq_along(ids)
+  b1 <- lapply(seq_along(ids), function(i) {
     bd <- data[data[, idname] == ids[i], ]
     bd[, idname] <- newid[i]
     bd
@@ -324,6 +344,7 @@ makeDist <- function(
     rearrange = FALSE,
     force01 = FALSE,
     method = "constant") {
+  .Deprecated("make_dist")
   make_dist(
     x = x,
     Fx = Fx,
@@ -341,6 +362,12 @@ makeDist <- function(
 #'  function
 #'
 #' @param df an ecdf object
+#'
+#' @examples
+#' y <- rnorm(100)
+#' F <- ecdf(y)
+#' Finv <- invert_ecdf(F)
+#' Finv(0.5) ## approximate median
 #'
 #' @return stepfun object that contains the quantiles of the df
 #'
@@ -364,22 +391,6 @@ invert_ecdf <- function(df) {
 invertEcdf <- function(df) {
   invert_ecdf(df)
 }
-
-## ## TODO: fix this, can reference quantreg package
-## ecdf2density <- function(df) {
-##     q <- knots(df)
-##     tau <- df(q)
-##     ## akjfun comes from rq package
-##     akjfun <- function(z, p, d = 10, g = 300, ...) {
-##         mz <- sum(z * p)
-##         sz <- sqrt(sum((z - mz)^2 * p))
-##         hz <- seq(mz - d * sz, mz + d * sz, length = g)
-##         fz <- quantreg::akj(z, hz, p = p, ...)$dens
-##         approxfun(hz, fz)
-##     }
-##     p <- diff(taus)
-##     akjfun(q, p)
-## }
 
 
 
@@ -411,6 +422,10 @@ checkfun <- function(a, tau) {
 #' @param weights the weights, weighted.checkfun normalizes the weights
 #'  to sum to 1.
 #'
+#' @examples
+#' x <- rnorm(100)
+#' weighted_checkfun(0, x, tau = 0.5, weights = rep(1, 100))
+#'
 #' @return numeric
 #' @export
 weighted_checkfun <- function(q, cvec, tau, weights) {
@@ -429,6 +444,7 @@ weighted_checkfun <- function(q, cvec, tau, weights) {
 #' @keywords internal
 #' @export
 weighted.checkfun <- function(q, cvec, tau, weights) {
+  .Deprecated("weighted_checkfun")
   weighted_checkfun(
     q = q,
     cvec = cvec,
@@ -459,8 +475,8 @@ weighted_quantile_inner <- function(tau, cvec, weights = NULL, norm = TRUE) {
   if (norm) {
     weights <- weights / mw
   }
-  return(optimize(weighted.checkfun,
-    lower = min(cvec),
+  return(optimize(weighted_checkfun,
+    lower = min(cvec), # nolint: indentation_linter. args to optimize() nested inside return()
     upper = max(cvec),
     cvec = cvec, tau = tau, weights = weights
   )$minimum)
@@ -476,6 +492,11 @@ weighted_quantile_inner <- function(tau, cvec, weights = NULL, norm = TRUE) {
 #'  to sum to 1.
 #' @param norm normalize the weights so that they have mean of 1, default is
 #'  to normalize
+#'
+#' @examples
+#' y <- rnorm(100)
+#' w <- runif(100)
+#' weighted_quantile(c(0.25, 0.5, 0.75), y, weights = w)
 #'
 #' @return vector of quantiles
 #' @export
@@ -493,6 +514,7 @@ weighted_quantile <- function(tau, cvec, weights = NULL, norm = TRUE) {
 #' @keywords internal
 #' @export
 getWeightedQuantiles <- function(tau, cvec, weights = NULL, norm = TRUE) {
+  .Deprecated("weighted_quantile")
   weighted_quantile(
     tau = tau,
     cvec = cvec,
@@ -509,6 +531,11 @@ getWeightedQuantiles <- function(tau, cvec, weights = NULL, norm = TRUE) {
 #' @param weights the vector of weights, can be NULL, then will just return mean
 #' @param norm normalize the weights so that they have mean of 1, default is
 #'  to normalize
+#'
+#' @examples
+#' y <- rnorm(100)
+#' w <- runif(100)
+#' weighted_mean(y, weights = w)
 #'
 #' @return the weighted mean
 #' @export
@@ -533,6 +560,7 @@ weighted_mean <- function(y, weights = NULL, norm = TRUE) {
 #' @keywords internal
 #' @export
 getWeightedMean <- function(y, weights = NULL, norm = TRUE) {
+  .Deprecated("weighted_mean")
   weighted_mean(
     y = y,
     weights = weights,
@@ -551,6 +579,12 @@ getWeightedMean <- function(y, weights = NULL, norm = TRUE) {
 #' @param weights the vector of weights, can be NULL, then will just return mean
 #' @param norm normalize the weights so that they have mean of 1, default is
 #'  to normalize
+#'
+#' @examples
+#' y <- rnorm(100)
+#' w <- runif(100)
+#' F <- weighted_ecdf(y, weights = w)
+#' F(0) ## approx 0.5
 #'
 #' @return ecdf
 #' @export
@@ -582,6 +616,7 @@ weighted_ecdf <- function(y, y.seq = NULL, weights = NULL, norm = TRUE) {
 #' @keywords internal
 #' @export
 getWeightedDf <- function(y, y.seq = NULL, weights = NULL, norm = TRUE) {
+  .Deprecated("weighted_ecdf")
   weighted_ecdf(
     y = y,
     y.seq = y.seq,
@@ -600,6 +635,12 @@ getWeightedDf <- function(y, y.seq = NULL, weights = NULL, norm = TRUE) {
 #' @param cs2 data frame, the second cross section
 #' @param yname the name of the variable to calculate difference for (should be the same in each dataset)
 #'
+#' @examples
+#' cs1 <- data.frame(y = rnorm(100))
+#' cs2 <- data.frame(y = rnorm(100, mean = 1))
+#' dy <- cs2panel(cs1, cs2, "y")
+#' mean(dy) ## approx 1
+#'
 #' @return the change in outcomes over time
 #' @export
 cs2panel <- function(cs1, cs2, yname) {
@@ -609,13 +650,11 @@ cs2panel <- function(cs1, cs2, yname) {
     ut <- ut[order(-ut)] ## orders largest to smallest
     ps <- seq(1, 0, length.out = length(ut)) ## orders largest to smallest
     utmin1 <- quantile(cs1[, yname], probs = ps, type = 1)
-    ## F.untreated.change.t <- ecdf(ut-utmin1)
   } else {
     utmin1 <- cs2[, yname]
     utmin1 <- utmin1[order(-utmin1)] ## orders largest to smallest
     ps <- seq(1, 0, length.out = length(utmin1)) ## orders largest to smallest
     ut <- quantile(cs1[, yname], probs = ps, type = 1)
-    ## F.untreated.change.t <- ecdf(ut-utmin1)
   }
   return(ut - utmin1)
 }
@@ -635,6 +674,10 @@ cs2panel <- function(cs1, cs2, yname) {
 #' @param report which type of report to make; diff is the difference between
 #'  the two variables by group
 #'
+#'
+#' @examples
+#' dta <- data.frame(x = rnorm(100), treat = rep(c(0, 1), 50))
+#' compare_binary("x", "treat", dta, report = "diff")
 #'
 #' @return matrix of results
 #' @export
@@ -660,6 +703,7 @@ compare_binary <- function(x, on, dta, w = rep(1, nrow(dta)), report = c("diff",
 #' @keywords internal
 #' @export
 compareBinary <- function(x, on, dta, w = rep(1, nrow(dta)), report = c("diff", "levels", "both")) {
+  .Deprecated("compare_binary")
   compare_binary(
     x = x,
     on = on,
@@ -729,6 +773,7 @@ rhs_vars <- function(formula) {
 #' @keywords internal
 #' @export
 rhs.vars <- function(formla) {
+  .Deprecated("rhs_vars")
   rhs_vars(formla)
 }
 
@@ -741,7 +786,7 @@ rhs.vars <- function(formla) {
 #'
 #' @examples
 #' ff <- yvar ~ x1 + x2
-#' lhs.vars(ff)
+#' lhs_vars(ff)
 #' @return vector of variable names
 #' @export
 lhs_vars <- function(formula) {
@@ -761,6 +806,7 @@ lhs_vars <- function(formula) {
 #' @keywords internal
 #' @export
 lhs.vars <- function(formla) {
+  .Deprecated("lhs_vars")
   lhs_vars(formla)
 }
 
@@ -778,7 +824,7 @@ lhs.vars <- function(formla) {
 #' @return a one sided formula
 #' @export
 rhs <- function(formula) {
-  toformula(NULL, rhs.vars(formula))
+  toformula(NULL, rhs_vars(formula))
 }
 
 #' @title Variable Names to Formula
@@ -793,7 +839,7 @@ rhs <- function(formula) {
 #' toformula("yvar", c("x1", "x2"))
 #'
 #' ## should return yvar ~ 1
-#' toformula("yvar", rhs.vars(~1))
+#' toformula("yvar", rhs_vars(~1))
 #'
 #' @return a formula
 #' @export
@@ -843,6 +889,7 @@ add_cov_to_formula <- function(covs, formula) {
 #' @keywords internal
 #' @export
 addCovToFormla <- function(covs, formla) {
+  .Deprecated("add_cov_to_formula")
   add_cov_to_formula(
     covs = covs,
     formula = formla
@@ -880,6 +927,7 @@ drop_cov_from_formula <- function(covs, formula) {
 #' @keywords internal
 #' @export
 dropCovFromFormla <- function(covs, formla) {
+  .Deprecated("drop_cov_from_formula")
   drop_cov_from_formula(covs = covs, formula = formla)
 }
 
@@ -887,7 +935,7 @@ dropCovFromFormla <- function(covs, formla) {
 #'
 #' @description Combines two distribution functions with given weights by `weights`
 #' @param y.seq sequence of possible y values
-#' @param dflist list of distribution functions to combine
+#' @param ecdflist list of ecdf objects (distribution functions) to combine
 #' @param weights a vector of weights to put on each distribution function;
 #'  if weights are not provided then equal weight is given to each
 #'  distribution function
@@ -898,29 +946,52 @@ dropCovFromFormla <- function(covs, formla) {
 #' y <- rnorm(100, 1, 1)
 #' Fx <- ecdf(x)
 #' Fy <- ecdf(y)
-#' both <- combineDfs(seq(-2, 3, 0.1), list(Fx, Fy))
+#' both <- combine_ecdfs(seq(-2, 3, 0.1), list(Fx, Fy))
 #' plot(Fx, col = "green")
 #' plot(Fy, col = "blue", add = TRUE)
 #' plot(both, add = TRUE)
 #'
 #' @return ecdf
 #' @export
-combine_ecdfs <- function(y.seq, dflist, weights = NULL, ...) {
+combine_ecdfs <- function(y.seq, ecdflist, weights = NULL, ...) {
+  # Handle deprecated 'dflist' argument name passed via ...
+  extra_args <- list(...)
+  if ("dflist" %in% names(extra_args)) {
+    if (!missing(ecdflist)) {
+      stop("combine_ecdfs: cannot specify both 'ecdflist' and deprecated 'dflist'")
+    }
+    warning("combine_ecdfs: argument 'dflist' is deprecated; use 'ecdflist' instead",
+            call. = FALSE)
+    ecdflist <- extra_args[["dflist"]]
+    extra_args[["dflist"]] <- NULL
+  }
+  # Guard against non-ecdf entries (e.g. NULL from uncomputable attgt cells),
+  # which would crash silently inside the lapply below.
+  not_ecdf <- !vapply(ecdflist, inherits, logical(1L), what = "ecdf")
+  if (any(not_ecdf)) {
+    bad_idx <- which(not_ecdf)
+    stop(sprintf(
+      "combine_ecdfs: element(s) %s of ecdflist are not ecdf objects (got: %s)",
+      paste(bad_idx, collapse = ", "),
+      paste(vapply(ecdflist[bad_idx], function(x) class(x)[1L], character(1L)),
+            collapse = ", ")
+    ))
+  }
   if (is.null(weights)) {
-    weights <- rep(1 / length(dflist), length(dflist))
+    weights <- rep(1 / length(ecdflist), length(ecdflist))
   }
   y.seq <- y.seq[order(y.seq)]
-  df.valslist <- lapply(dflist, function(ddff) {
+  df.valslist <- lapply(ecdflist, function(ddff) {
     ddff(y.seq)
   })
   df.valsmat <- simplify2array(df.valslist)
-  for (i in 1:length(weights)) {
+  for (i in seq_along(weights)) {
     df.valsmat[, i] <- df.valsmat[, i] * weights[i]
   }
 
   df.vals <- rowSums(df.valsmat)
 
-  make_dist(y.seq, df.vals, ...)
+  do.call(make_dist, c(list(y.seq, df.vals), extra_args))
 }
 
 #' @title combineDfs
@@ -933,9 +1004,10 @@ combine_ecdfs <- function(y.seq, dflist, weights = NULL, ...) {
 #' @keywords internal
 #' @export
 combineDfs <- function(y.seq, dflist, pstrat = NULL, ...) {
+  .Deprecated("combine_ecdfs")
   combine_ecdfs(
     y.seq = y.seq,
-    dflist = dflist,
+    ecdflist = dflist,
     weights = pstrat, ...
   )
 }
@@ -983,72 +1055,6 @@ subsample <- function(dta, idname, tname, keepids = NULL, nkeep = NULL) {
   retdta <- dta[dta[, idname] %in% keepids, ]
   retdta
 }
-## THESE ARE THROWING ERRORS
-
-## this should return the distribution function
-## currently running ci.qte and then inverting, but probably
-## would be better to calculate it directly
-## ci.treated.Df <- function(data, y.seq, formla, xformla, probs, weights=NULL, se, iters, retEachIter, method="logit", pl, cores) {
-
-##     qp <- QTEparams(formla, xformla, t=NULL, tmin1=NULL, tmin2=NULL, tname=NULL, data=data, weights=weights, idname=NULL, probs=probs, iters=iters, alp=alp, method=method, plot=plot, se=se, retEachIter=retEachIter, bootstrapiter=FALSE, seedvec=NULL, pl=pl, cores=cores)
-##     setupData(qp)
-
-##     pscore.reg <- glm(data[,treat] ~ as.matrix(data[,x]),
-##                       family=binomial(link=method))
-##     pscore <- fitted(pscore.reg)
-##     d <- data[,treat]
-##     y <- data[,yname]
-
-##     y.seq <- y.seq[order(y.seq)]
-##     df.vals <- vapply(y.seq, function(x) {
-##         mean((d/pscore)*(y <= x) / (mean(d/pscore))) }, 1.0)
-##     make_dist(y.seq, df.vals)
-## }
-
-## ## this should return the distribution function
-## ## currently running ci.qte and then inverting, but probably
-## ## would be better to calculate it directly
-## ci.untreated.Df <- function(data, y.seq, formla, xformla, probs, weights=NULL, se, iters, retEachIter, method="logit", pl, cores) {
-##     ##OLD: using qte method
-##     ##cfirp <- ci.qte(formla=formla, xformla=xformla,
-##     ##            probs=probs, weights=weights, se=se, iters=iters,
-##     ##            retEachIter=RE, pl=pl, cores=cores, data=data)
-##     ##list(cfirp$F.treated.t, cfirp$F.treated.t.cf)
-##     qp <- QTEparams(formla, xformla, t=NULL, tmin1=NULL, tmin2=NULL, tname=NULL, data=data, weights=weights, idname=NULL, probs=probs, iters=iters, alp=alp, method=method, plot=plot, se=se, retEachIter=retEachIter, bootstrapiter=FALSE, seedvec=NULL, pl=pl, cores=cores)
-##     setupData(qp)
-
-##     pscore.reg <- glm(data[,treat] ~ as.matrix(data[,x]),
-##                       family=binomial(link=method))
-##     pscore <- fitted(pscore.reg)
-##     d <- data[,treat]
-##     y <- data[,yname]
-##     y.seq <- y.seq[order(y.seq)]
-##     df.vals <- vapply(y.seq, function(x) {
-##         mean(((1-d)/(1-pscore))*(y <= x) / mean((1-d)/(1-pscore))) }, 1.0)
-##     make_dist(y.seq, df.vals)
-## }
-
-## ##get the distribution function
-## ## under stratified random sampling
-## strat.ci.df <- function(y.seq, stratvarname, pstrat, formla, xformla, data, probs, weights, se, iters, retEachIter, pl, cores) {
-
-##     browser()
-
-##     cdta <- lapply(unique(data[,stratvarname]),
-##                    function(x) { data[data[,stratvarname]==x,] })
-##     ctreatedflist <- lapply(cdta, ci.treated.Df, y.seq=y.seq, formla=formla,
-##                         xformla=xformla, probs=probs,
-##                         se=se, iters=iters, retEachIter=retEachIter,
-##                         pl=pl, cores=cores)
-##     treated.df <- combineDfs(y.seq, ctreatedflist, pstrat)
-##     cuntreatedflist <- lapply(cdta, ci.untreated.Df, y.seq=y.seq, formla=formla,
-##                         xformla=xformla, probs=probs,
-##                         se=se, iters=iters, retEachIter=retEachIter,
-##                         pl=pl, cores=cores)
-##     untreated.df <- combineDfs(y.seq, cuntreatedflist, pstrat)
-##     return(c(treated.df, untreated.df))
-## }
-
 
 #' @title Return Particular Element from Each Element in a List
 #' @description a function to take a list and get a particular part
@@ -1061,8 +1067,8 @@ subsample <- function(dta, idname, tname, keepids = NULL, nkeep = NULL) {
 #' @examples
 #' len <- 100 # number elements in list
 #' lis <- lapply(1:len, function(l) list(x = (-l), y = l^2)) # create list
-#' getListElement(lis, "x")[1] # should be equal to -1
-#' getListElement(lis, 1)[1] # should be equal to -1
+#' get_list_element(lis, "x")[1] # should be equal to -1
+#' get_list_element(lis, 1)[1] # should be equal to -1
 #'
 #' @export
 get_list_element <- function(listolists, whichone = 1) {
@@ -1079,6 +1085,7 @@ get_list_element <- function(listolists, whichone = 1) {
 #' @keywords internal
 #' @export
 getListElement <- function(listolists, whichone = 1) {
+  .Deprecated("get_list_element")
   get_list_element(listolists = listolists, whichone = whichone)
 }
 
@@ -1098,10 +1105,13 @@ source_all <- function(fldr) {
 #' @param cond a vector of conditions to check
 #' @param use_isTRUE whether or not to use a vectorized version
 #'  of isTRUE.  This is generally slower but covers more cases.
+#' @examples
+#' TorF(c(TRUE, NA, FALSE)) ## NA becomes FALSE
+#'
 #' @return logical vector
 #'
 #' @export
-TorF <- function(cond, use_isTRUE = FALSE) {
+TorF <- function(cond, use_isTRUE = FALSE) { # nolint: object_name_linter. mixed-case param is stable exported API
   if (!is.logical(cond)) stop("cond should be a logical vector")
 
   if (use_isTRUE) {
@@ -1136,11 +1146,20 @@ get_group_inner <- function(this_df, tname, treatname) {
 #' @param idname name of column that holds the unit id
 #' @param tname name of column that holds the time period
 #' @param treatname name of column with the treatment indicator
+#' @examples
+#' n <- 50
+#' id <- rep(seq_len(n), each = 4)
+#' t <- rep(1:4, n)
+#' g <- rep(sample(c(0, 2, 3), n, replace = TRUE), each = 4)
+#' treat <- as.integer(t >= g & g > 0)
+#' dta <- data.frame(id = id, t = t, treat = treat)
+#' dta$group <- get_group(dta, idname = "id", tname = "t", treatname = "treat")
+#' head(unique(dta[, c("id", "group")]))
 #' @export
 get_group <- function(df, idname, tname, treatname) {
-  group_vec <- df %>%
-    group_by(.data[[idname]]) %>%
-    group_map(~ rep(get_group_inner(.x, tname, treatname), nrow(.x))) %>%
+  group_vec <- df |>
+    group_by(.data[[idname]]) |>
+    group_map(~ rep(get_group_inner(.x, tname, treatname), nrow(.x))) |>
     unlist()
   group_vec
 }
@@ -1177,11 +1196,21 @@ get_YiGmin1_inner <- function(this_df, yname, tname, gname) {
 #'  for which to calculate its outcome in the immediate pre-treatment period
 #' @param gname name of column containing the unit's group
 #' @inheritParams get_group
+#' @examples
+#' n <- 50
+#' id <- rep(seq_len(n), each = 4)
+#' t <- rep(1:4, n)
+#' y <- rnorm(n * 4)
+#' g <- rep(sample(c(0, 2, 3), n, replace = TRUE), each = 4)
+#' dta <- data.frame(id = id, t = t, y = y, group = g)
+#' dta$YiGmin1 <- get_YiGmin1(dta, idname = "id", yname = "y",
+#'                             tname = "t", gname = "group")
+#' head(unique(dta[, c("id", "group", "YiGmin1")]))
 #' @export
 get_YiGmin1 <- function(df, idname, yname, tname, gname) {
-  YiGmin1_vec <- df %>%
-    group_by(.data[[idname]]) %>%
-    group_map(~ rep(get_YiGmin1_inner(.x, yname, tname, gname), nrow(.x))) %>%
+  YiGmin1_vec <- df |>
+    group_by(.data[[idname]]) |>
+    group_map(~ rep(get_YiGmin1_inner(.x, yname, tname, gname), nrow(.x))) |>
     unlist()
   YiGmin1_vec
 }
@@ -1205,11 +1234,19 @@ get_Yi1_inner <- function(this_df, yname, tname, gname) {
 #'  period that is available in a panel data setting (this function can also
 #'  be used to recover covariates, etc. in the first period).
 #' @inheritParams get_YiGmin1
+#' @examples
+#' n <- 50
+#' id <- rep(seq_len(n), each = 4)
+#' t <- rep(1:4, n)
+#' y <- rnorm(n * 4)
+#' g <- rep(sample(c(0, 2, 3), n, replace = TRUE), each = 4)
+#' dta <- data.frame(id = id, t = t, y = y, group = g)
+#' dta$Yi1 <- get_Yi1(dta, idname = "id", yname = "y", tname = "t", gname = "group")
 #' @export
 get_Yi1 <- function(df, idname, yname, tname, gname) {
-  Yi1_vec <- df %>%
-    group_by(.data[[idname]]) %>%
-    group_map(~ rep(get_Yi1_inner(.x, yname, tname, gname), nrow(.x))) %>%
+  Yi1_vec <- df |>
+    group_by(.data[[idname]]) |>
+    group_map(~ rep(get_Yi1_inner(.x, yname, tname, gname), nrow(.x))) |>
     unlist()
   Yi1_vec
 }
@@ -1234,14 +1271,23 @@ get_Yit_inner <- function(this_df, tp, yname, tname) {
 #'  be used to recover covariates, etc. in the first period).
 #' @inheritParams get_YiGmin1
 #' @inheritParams get_Yit_inner
+#' @examples
+#' n <- 50
+#' id <- rep(seq_len(n), each = 4)
+#' t <- rep(1:4, n)
+#' y <- rnorm(n * 4)
+#' dta <- data.frame(id = id, t = t, y = y)
+#' Yit2 <- get_Yit(dta, tp = 2, idname = "id", yname = "y", tname = "t")
+#' length(Yit2) ## n * 4
+#'
 #' @return a vector of outcomes in period t, the vector
 #'  will have the length nT (i.e., this is returned for
 #'  each element in the panel, not for a particular period)
 #' @export
 get_Yit <- function(df, tp, idname, yname, tname) {
-  Yit_vec <- df %>%
-    group_by(.data[[idname]]) %>%
-    group_map(~ rep(get_Yit_inner(.x, tp, yname, tname), nrow(.x))) %>%
+  Yit_vec <- df |>
+    group_by(.data[[idname]]) |>
+    group_map(~ rep(get_Yit_inner(.x, tp, yname, tname), nrow(.x))) |>
     unlist()
   Yit_vec
 }
@@ -1263,11 +1309,18 @@ get_Yibar_inner <- function(this_df, yname) {
 #' periods separately for each unit in a panel data setting (this function can also
 #'  be used to recover covariates, etc.).
 #' @inheritParams get_YiGmin1
+#' @examples
+#' n <- 50
+#' id <- rep(seq_len(n), each = 4)
+#' t <- rep(1:4, n)
+#' y <- rnorm(n * 4)
+#' dta <- data.frame(id = id, t = t, y = y)
+#' dta$Yibar <- get_Yibar(dta, idname = "id", yname = "y")
 #' @export
 get_Yibar <- function(df, idname, yname) {
-  Yibar_vec <- df %>%
-    group_by(.data[[idname]]) %>%
-    group_map(~ rep(get_Yibar_inner(.x, yname), nrow(.x))) %>%
+  Yibar_vec <- df |>
+    group_by(.data[[idname]]) |>
+    group_map(~ rep(get_Yibar_inner(.x, yname), nrow(.x))) |>
     unlist()
   Yibar_vec
 }
@@ -1284,7 +1337,6 @@ get_Yibar <- function(df, idname, yname) {
 #' @export
 get_Yibar_pre_inner <- function(this_df, yname, tname, gname) {
   this_df <- as.data.frame(this_df)
-  maxT <- max(this_df[, tname])
   this_group <- unique(this_df[, gname])
   Yibarpre <- ifelse(this_group == 0,
     mean(this_df[, yname]),
@@ -1304,11 +1356,20 @@ get_Yibar_pre_inner <- function(this_df, yname, tname, gname) {
 #'  for which to calculate its outcome in the immediate pre-treatment period
 #' @param gname name of column containing the unit's group
 #' @inheritParams get_YiGmin1
+#' @examples
+#' n <- 50
+#' id <- rep(seq_len(n), each = 4)
+#' t <- rep(1:4, n)
+#' y <- rnorm(n * 4)
+#' g <- rep(sample(c(0, 2, 3), n, replace = TRUE), each = 4)
+#' dta <- data.frame(id = id, t = t, y = y, group = g)
+#' dta$Yibarpre <- get_Yibar_pre(dta, idname = "id", yname = "y",
+#'                                tname = "t", gname = "group")
 #' @export
 get_Yibar_pre <- function(df, idname, yname, tname, gname) {
-  YiGmin1_vec <- df %>%
-    group_by(.data[[idname]]) %>%
-    group_map(~ rep(get_Yibar_pre_inner(.x, yname, tname, gname), nrow(.x))) %>%
+  YiGmin1_vec <- df |>
+    group_by(.data[[idname]]) |>
+    group_map(~ rep(get_Yibar_pre_inner(.x, yname, tname, gname), nrow(.x))) |>
     unlist()
   YiGmin1_vec
 }
@@ -1320,10 +1381,17 @@ get_Yibar_pre <- function(df, idname, yname, tname, gname) {
 #' @inheritParams get_Yi1
 #' @param nlags The number of periods to lag.  The default is 1, which computes
 #'  the lag from the previous period.
+#' @examples
+#' n <- 50
+#' id <- rep(seq_len(n), each = 4)
+#' t <- rep(1:4, n)
+#' y <- rnorm(n * 4)
+#' dta <- data.frame(id = id, t = t, y = y)
+#' dta$lag_y <- get_lagYi(dta, idname = "id", yname = "y", tname = "t")
 #' @export
 get_lagYi <- function(df, idname, yname, tname, nlags = 1) {
-  df <- df %>%
-    dplyr::group_by(.data[[idname]]) %>%
+  df <- df |>
+    dplyr::group_by(.data[[idname]]) |>
     dplyr::mutate(.lag = dplyr::lag(.data[[yname]], nlags, order_by = .data[[tname]]))
   df$.lag
 }
@@ -1334,6 +1402,13 @@ get_lagYi <- function(df, idname, yname, tname, nlags = 1) {
 #'  vector will also have nxT elements with one element for each unit set to be
 #'  NA.
 #' @inheritParams get_lagYi
+#' @examples
+#' n <- 50
+#' id <- rep(seq_len(n), each = 4)
+#' t <- rep(1:4, n)
+#' y <- rnorm(n * 4)
+#' dta <- data.frame(id = id, t = t, y = y)
+#' dy <- get_first_difference(dta, idname = "id", yname = "y", tname = "t")
 #' @export
 get_first_difference <- function(df, idname, yname, tname) {
   df$.lag <- get_lagYi(df, idname, yname, tname)
@@ -1350,6 +1425,15 @@ get_first_difference <- function(df, idname, yname, tname) {
 #' @param balanced_panel a logical indicating whether the panel is balanced.
 #'  If TRUE, the function will optimize the repetition process.  Default
 #'  is TRUE.
+#'
+#' @examples
+#' n <- 50
+#' id <- rep(seq_len(n), each = 4)
+#' t <- rep(1:4, n)
+#' dta <- data.frame(id = id, t = t)
+#' x_unit <- rnorm(n)
+#' x_panel <- time_invariant_to_panel(x_unit, dta, idname = "id")
+#' length(x_panel) ## n * 4
 #'
 #' @return a vector of length equal to the number of rows in df.
 #' @export
@@ -1394,12 +1478,21 @@ check_staggered_inner <- function(this_df, treatname) {
 #'
 #' @inheritParams get_group
 #'
+#' @examples
+#' n <- 50
+#' id <- rep(seq_len(n), each = 4)
+#' t <- rep(1:4, n)
+#' g <- rep(sample(c(0, 2, 3), n, replace = TRUE), each = 4)
+#' treat <- as.integer(t >= g & g > 0)
+#' dta <- data.frame(id = id, t = t, treat = treat)
+#' check_staggered(dta, idname = "id", treatname = "treat")
+#'
 #' @return a logical indicating whether treatment is staggered
 #' @export
 check_staggered <- function(df, idname, treatname) {
-  this_staggered <- df %>%
-    group_by(.data[[idname]]) %>%
-    group_map(~ check_staggered_inner(.x, treatname)) %>%
+  this_staggered <- df |>
+    group_by(.data[[idname]]) |>
+    group_map(~ check_staggered_inner(.x, treatname)) |>
     unlist()
   all(this_staggered)
 }
@@ -1463,6 +1556,10 @@ orig2t_inner <- function(orig, original_time.periods) {
 #'  periods.
 #' @param original_time.periods vector containing all original time periods.
 #'
+#' @examples
+#' original_time.periods <- c(2001, 2003, 2005, 2007)
+#' t2orig(1:4, original_time.periods) ## returns c(2001, 2003, 2005, 2007)
+#'
 #' @return original time period converted from new time period
 #'
 #' @export
@@ -1484,6 +1581,10 @@ t2orig <- function(t, original_time.periods) {
 #' @inheritParams t2orig
 #' @param orig a vector of original time periods to convert to new time periods.
 #'
+#' @examples
+#' original_time.periods <- c(2001, 2003, 2005, 2007)
+#' orig2t(c(2001, 2005), original_time.periods) ## returns c(1, 3)
+#'
 #' @return new time period converted from original time period
 #'
 #' @export
@@ -1499,9 +1600,20 @@ orig2t <- function(orig, original_time.periods) {
 #' @description A function to check for multicollinearity and drop collinear terms
 #'  from a matrix
 #' @param matrix a matrix for which the function will remove collinear columns
+#' @examples
+#' \donttest{
+#'   if (requireNamespace("caret", quietly = TRUE)) {
+#'     X <- cbind(1:5, 2 * (1:5), rnorm(5))
+#'     colnames(X) <- c("x1", "x2", "x3")
+#'     drop_collinear(X) ## x2 dropped as collinear with x1
+#'   }
+#' }
 #' @return a matrix with collinear columns removed
 #' @export
 drop_collinear <- function(matrix) {
+  if (!requireNamespace("caret", quietly = TRUE)) {
+    stop("Package 'caret' is required for drop_collinear(). Install it with install.packages('caret').")
+  }
   # Find the columns that are collinear
   collinear_info <- caret::findLinearCombos(matrix)
 
@@ -1532,6 +1644,15 @@ drop_collinear <- function(matrix) {
 #'  of rows is equal to nT = nrow(data)).  The default is FALSE, so that long data
 #'  is returned by default.
 #' @param ret_id whether to return the id column in the output data.frame.  The default is FALSE.
+#' @examples
+#' n <- 20
+#' id <- rep(seq_len(n), each = 4)
+#' t <- rep(1:4, n)
+#' x1 <- rnorm(n * 4)
+#' dta <- data.frame(id = id, t = t, x1 = x1)
+#' pcs <- get_principal_components(~x1, dta, idname = "id", tname = "t")
+#' dim(pcs)
+#'
 #' @return a data.frame containing the original data with the principal components appended
 #' @export
 get_principal_components <- function(
@@ -1548,14 +1669,14 @@ get_principal_components <- function(
     n_components <- nperiods
   }
   pc_list <- list()
-  for (i in 1:ncol(X)) {
+  for (i in seq_len(ncol(X))) {
     this_x_name <- colnames(X)[i]
     x <- X[, i]
     df <- data.frame(.id = data[[idname]], .time = data[[tname]], x)
-    wide_data <- df %>% pivot_wider(id_cols = .id, names_from = .time, names_prefix = "_x_", values_from = x)
-    .id <- wide_data$.id
-    pca_inner <- wide_data %>%
-      select(starts_with("_x_")) %>%
+    wide_data <- df |> pivot_wider(id_cols = .id, names_from = .time, names_prefix = "_x_", values_from = x)
+    .id <- wide_data$.id # nolint: object_name_linter. dot-prefix col name from pivot_wider
+    pca_inner <- wide_data |>
+      select(starts_with("_x_")) |>
       prcomp(center = FALSE, scale. = FALSE)
     princ_comp <- pca_inner$x[, 1:n_components]
     colnames(princ_comp) <- paste0(this_x_name, "_", colnames(princ_comp))
@@ -1569,7 +1690,7 @@ get_principal_components <- function(
   if (ret_wide) {
     return(pc_data)
   } else {
-    return(pc_data[rep(1:nrow(pc_data), each = nperiods), ])
+    return(pc_data[rep(seq_len(nrow(pc_data)), each = nperiods), ])
   }
 }
 
@@ -1588,6 +1709,10 @@ get_principal_components <- function(
 #' @param normalize_weights whether or not to force the weights to sum to 1,
 #'  default is true
 #'
+#' @examples
+#' l <- list(c(1, 2, 3), c(4, 5, 6))
+#' weighted_combine_list(l, w = c(0.5, 0.5)) ## returns c(2.5, 3.5, 4.5)
+#'
 #' @return matrix or vector corresponding to the weighted average of
 #'  all of the elements in `l`
 #'
@@ -1596,10 +1721,8 @@ weighted_combine_list <- function(l, w, normalize_weights = TRUE) {
   # make sure the arguments passed in are compatible with the function
   if (!is.list(l)) stop("`l` should be a list")
   if (!is.numeric(w)) stop("`w` should be a numeric vector")
-  # unique_l_class <- unique(sapply(l, class))
-  # if (!(length(unique_l_class) == 1)) stop("all elements of `l` should have the same class")
-  if (!(is.matrix(l[[1]]) | is.numeric(l[[1]]))) stop("`l` should contain numeric vectors or matrices")
-  if (is.numeric(l[[1]]) & is.vector(l[[1]])) {
+  if (!(is.matrix(l[[1]]) || is.numeric(l[[1]]))) stop("`l` should contain numeric vectors or matrices")
+  if (is.numeric(l[[1]]) && is.vector(l[[1]])) {
     unique_l_length <- unique(sapply(l, length))
     if (!(length(unique_l_length) == 1)) stop("all elements of `l` should have the same length")
   }
