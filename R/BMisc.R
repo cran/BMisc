@@ -1,14 +1,14 @@
 #' @title Balance a Panel Data Set
 #'
 #' @description This function drops observations from data.frame
-#'  that are not part of balanced panel data set.
+#'  that are not part of balanced panel data set. `data` is copied
+#'  before dropping any rows, so the object passed in is left
+#'  unmodified; see \code{\link{set_balanced_panel}} for an in-place
+#'  alternative that avoids copying large inputs.
 #'
-#' @param data data.frame used in function
+#' @param data data.frame (or data.table) used in function
 #' @param idname unique id
 #' @param tname time period name
-#' @param return_data.table if TRUE, make_balanced_panel will
-#'  return a data.table rather than a data.frame.  Default
-#'  is FALSE.
 #' @examples
 #' id <- rep(seq(1, 100), each = 2) # individual ids for setting up a two period panel
 #' t <- rep(seq(1, 2), 100) # time periods
@@ -17,24 +17,57 @@
 #' dta <- dta[-7, ] # drop the 7th row from the dataset (which creates an unbalanced panel)
 #' dta <- make_balanced_panel(dta, idname = "id", tname = "t")
 #'
-#' @return data.frame that is a balanced panel
+#' @return a balanced panel, with the same class (`data.frame` or
+#'  `data.table`) as `data`
 #' @export
-make_balanced_panel <- function(data,
-                                idname,
-                                tname,
-                                return_data.table = FALSE) {
+make_balanced_panel <- function(data, idname, tname) {
   if (!inherits(data, "data.frame")) {
     stop("data must be a data.frame")
   }
+  was_data_table <- data.table::is.data.table(data)
 
-  data.table::setDT(data)
+  # as.data.table() always copies, even when `data` is already a
+  # data.table, so the caller's object is never touched.
+  dt <- data.table::as.data.table(data)
+  nt <- length(unique(dt[[tname]]))
+  out <- dt[, if (.N == nt) .SD, by = idname]
 
-  nt <- length(unique(data[[tname]]))
-  if (!return_data.table) {
-    return(as.data.frame(data[, if (.N == nt) .SD, by = idname]))
-  } else if (return_data.table) {
-    return(data[, if (.N == nt) .SD, by = idname])
+  # `out` is already a fresh, function-private object at this point, so
+  # converting its class here is free (no further copy).
+  if (!was_data_table) data.table::setDF(out)
+  out
+}
+
+#' @title set_balanced_panel
+#'
+#' @description In-place version of \code{\link{make_balanced_panel}}
+#'  for large panels where copying `data` is undesirable. Converts
+#'  `data` to a data.table by reference (mutating the caller's object
+#'  into a data.table as a side effect, if it is not one already)
+#'  instead of copying it. The balanced result must still be captured
+#'  from the return value, the same as any other function in this
+#'  package (filtering out unbalanced units cannot itself happen
+#'  without allocating the smaller, filtered result somewhere).
+#'
+#' @inheritParams make_balanced_panel
+#'
+#' @examples
+#' id <- rep(seq(1, 100), each = 2)
+#' t <- rep(seq(1, 2), 100)
+#' y <- rnorm(200)
+#' dta <- data.frame(id = id, t = t, y = y)
+#' dta <- dta[-7, ]
+#' dta <- set_balanced_panel(dta, idname = "id", tname = "t") # dta is now a data.table
+#'
+#' @return a balanced data.table
+#' @export
+set_balanced_panel <- function(data, idname, tname) {
+  if (!inherits(data, "data.frame")) {
+    stop("data must be a data.frame")
   }
+  data.table::setDT(data)
+  nt <- length(unique(data[[tname]]))
+  data[, if (.N == nt) .SD, by = idname]
 }
 
 #' @title makeBalancedPanel
@@ -47,19 +80,46 @@ make_balanced_panel <- function(data,
 #'
 #' @keywords internal
 #' @export
-makeBalancedPanel <- function(data,
-                              idname,
-                              tname,
-                              return_data.table = FALSE) {
+makeBalancedPanel <- function(data, idname, tname) {
   .Deprecated("make_balanced_panel")
-  make_balanced_panel(
-    data = data,
-    idname = idname,
-    tname = tname,
-    return_data.table = return_data.table
-  )
+  make_balanced_panel(data = data, idname = idname, tname = tname)
 }
 
+#' @title sort_panel
+#'
+#' @description Sorts a panel data set by unit id and then time period.
+#'  `data` is copied before sorting, so the object passed in is left
+#'  unmodified. For large panels where copying is undesirable, sort in
+#'  place instead with
+#'  `data.table::setorderv(data, c(idname, tname))`.
+#'
+#' @inheritParams make_balanced_panel
+#'
+#' @examples
+#' id <- rep(sample(1:5), each = 2) # units in a shuffled, unsorted order
+#' t <- rep(c(2, 1), 5) # each unit's own periods out of time order
+#' dta <- data.frame(id = id, t = t, y = rnorm(10))
+#' dta <- sort_panel(dta, idname = "id", tname = "t")
+#'
+#' @return `data` sorted by `(idname, tname)`, with the same class
+#'  (`data.frame` or `data.table`) as `data`
+#' @export
+sort_panel <- function(data, idname, tname) {
+  if (!inherits(data, "data.frame")) {
+    stop("data must be a data.frame")
+  }
+  was_data_table <- data.table::is.data.table(data)
+
+  # as.data.table() always copies, even when `data` is already a
+  # data.table, so the caller's object is never touched.
+  out <- data.table::as.data.table(data)
+  data.table::setorderv(out, c(idname, tname))
+
+  # `out` is already a fresh, function-private object at this point, so
+  # converting its class here is free (no further copy).
+  if (!was_data_table) data.table::setDF(out)
+  out
+}
 
 #' @title Panel Data to Repeated Cross Sections
 #'
@@ -1123,6 +1183,12 @@ TorF <- function(cond, use_isTRUE = FALSE) { # nolint: object_name_linter. mixed
 }
 
 
+# The unit-level getters below all follow the same shape: aggregate `df` down
+# to one row per unit (in sorted id order, which is what the previous
+# dplyr::group_by() code produced), then `rep()` each unit's value back out
+# over its rows.  They are vectorised equivalents of the exported `*_inner`
+# functions, which remain available for operating on a single unit's data.
+
 #' @title get_group_inner
 #' @description Calculates the group for a particular unit
 #' @param this_df a data.frame, for this function it should be specific to
@@ -1131,6 +1197,7 @@ TorF <- function(cond, use_isTRUE = FALSE) { # nolint: object_name_linter. mixed
 #' @keywords internal
 #' @export
 get_group_inner <- function(this_df, tname, treatname) {
+  this_df <- as.data.frame(this_df)
   if (all(this_df[, treatname] == 0)) {
     return(0)
   }
@@ -1157,11 +1224,19 @@ get_group_inner <- function(this_df, tname, treatname) {
 #' head(unique(dta[, c("id", "group")]))
 #' @export
 get_group <- function(df, idname, tname, treatname) {
-  group_vec <- df |>
-    group_by(.data[[idname]]) |>
-    group_map(~ rep(get_group_inner(.x, tname, treatname), nrow(.x))) |>
-    unlist()
-  group_vec
+  dt <- data.table::data.table(
+    .id = df[[idname]], .t = df[[tname]], .tr = df[[treatname]]
+  )
+  dt[, .nz := .tr != 0]
+  units <- dt[, list(.n = .N, .nonzero = sum(.nz)), keyby = ".id"]
+  # a unit's group is the first period in which it is observed as treated
+  first_treated <- unique(dt[.tr > 0], by = ".id")
+  out <- as.numeric(first_treated$.t[match(units$.id, first_treated$.id)])
+  # units that are untreated in every period belong to group 0
+  out[units$.nonzero == 0] <- 0
+  # keyby sorts units by id, which can differ from df's row order; realign
+  # by id rather than assuming df's rows are already grouped that way.
+  out[match(dt$.id, units$.id)]
 }
 
 #' @title get_YiGmin1_inner
@@ -1208,11 +1283,18 @@ get_YiGmin1_inner <- function(this_df, yname, tname, gname) {
 #' head(unique(dta[, c("id", "group", "YiGmin1")]))
 #' @export
 get_YiGmin1 <- function(df, idname, yname, tname, gname) {
-  YiGmin1_vec <- df |>
-    group_by(.data[[idname]]) |>
-    group_map(~ rep(get_YiGmin1_inner(.x, yname, tname, gname), nrow(.x))) |>
-    unlist()
-  YiGmin1_vec
+  dt <- data.table::data.table(
+    .id = df[[idname]], .y = df[[yname]],
+    .tn = as.numeric(df[[tname]]), .g = df[[gname]]
+  )
+  # NB the j expression is kept in a form data.table can optimise with GForce
+  units <- dt[, list(.n = .N, .maxt = max(.tn), .g = .g[1L]), keyby = ".id"]
+  # never-treated units (group 0) fall back to their last period
+  units[, .tn := data.table::fifelse(.g == 0, .maxt, as.numeric(.g) - 1)]
+  vals <- dt[units[, list(.id, .tn)], on = c(".id", ".tn"), mult = "first"]$.y
+  # keyby sorts units by id, which can differ from df's row order; realign
+  # by id rather than assuming df's rows are already grouped that way.
+  vals[match(dt$.id, units$.id)]
 }
 
 #' @title get_Yi1_inner
@@ -1244,11 +1326,14 @@ get_Yi1_inner <- function(this_df, yname, tname, gname) {
 #' dta$Yi1 <- get_Yi1(dta, idname = "id", yname = "y", tname = "t", gname = "group")
 #' @export
 get_Yi1 <- function(df, idname, yname, tname, gname) {
-  Yi1_vec <- df |>
-    group_by(.data[[idname]]) |>
-    group_map(~ rep(get_Yi1_inner(.x, yname, tname, gname), nrow(.x))) |>
-    unlist()
-  Yi1_vec
+  dt <- data.table::data.table(.id = df[[idname]], .y = df[[yname]], .t = df[[tname]])
+  units <- dt[, list(.n = .N), keyby = ".id"]
+  # sorting by (id, time) puts each unit's earliest period in its first row
+  firsts <- unique(dt[order(.id, .t)], by = ".id")
+  vals <- firsts$.y[match(units$.id, firsts$.id)]
+  # keyby sorts units by id, which can differ from df's row order; realign
+  # by id rather than assuming df's rows are already grouped that way.
+  vals[match(dt$.id, units$.id)]
 }
 
 #' @title get_Yit_inner
@@ -1282,14 +1367,18 @@ get_Yit_inner <- function(this_df, tp, yname, tname) {
 #'
 #' @return a vector of outcomes in period t, the vector
 #'  will have the length nT (i.e., this is returned for
-#'  each element in the panel, not for a particular period)
+#'  each element in the panel, not for a particular period);
+#'  `NA` for units not observed in period `tp`
 #' @export
 get_Yit <- function(df, tp, idname, yname, tname) {
-  Yit_vec <- df |>
-    group_by(.data[[idname]]) |>
-    group_map(~ rep(get_Yit_inner(.x, tp, yname, tname), nrow(.x))) |>
-    unlist()
-  Yit_vec
+  dt <- data.table::data.table(.id = df[[idname]], .y = df[[yname]], .t = df[[tname]])
+  units <- dt[, list(.n = .N), keyby = ".id"]
+  at_tp <- unique(dt[.t == tp], by = ".id")
+  # units that are not observed in period tp get NA
+  vals <- at_tp$.y[match(units$.id, at_tp$.id)]
+  # keyby sorts units by id, which can differ from df's row order; realign
+  # by id rather than assuming df's rows are already grouped that way.
+  vals[match(dt$.id, units$.id)]
 }
 
 #' @title get_Yibar_inner
@@ -1318,11 +1407,11 @@ get_Yibar_inner <- function(this_df, yname) {
 #' dta$Yibar <- get_Yibar(dta, idname = "id", yname = "y")
 #' @export
 get_Yibar <- function(df, idname, yname) {
-  Yibar_vec <- df |>
-    group_by(.data[[idname]]) |>
-    group_map(~ rep(get_Yibar_inner(.x, yname), nrow(.x))) |>
-    unlist()
-  Yibar_vec
+  dt <- data.table::data.table(.id = df[[idname]], .y = df[[yname]])
+  units <- dt[, list(.n = .N, .out = mean(.y)), keyby = ".id"]
+  # keyby sorts units by id, which can differ from df's row order; realign
+  # by id rather than assuming df's rows are already grouped that way.
+  units$.out[match(dt$.id, units$.id)]
 }
 
 #' @title get_Yibar_pre_inner
@@ -1367,11 +1456,23 @@ get_Yibar_pre_inner <- function(this_df, yname, tname, gname) {
 #'                                tname = "t", gname = "group")
 #' @export
 get_Yibar_pre <- function(df, idname, yname, tname, gname) {
-  YiGmin1_vec <- df |>
-    group_by(.data[[idname]]) |>
-    group_map(~ rep(get_Yibar_pre_inner(.x, yname, tname, gname), nrow(.x))) |>
-    unlist()
-  YiGmin1_vec
+  dt <- data.table::data.table(
+    .id = df[[idname]], .y = df[[yname]], .t = df[[tname]], .g = df[[gname]]
+  )
+  dt[, .pre := .t < .g]
+  units <- dt[, list(
+    .n = .N, .g = .g[1L], .allmean = mean(.y), .npre = sum(.pre)
+  ), keyby = ".id"]
+  pre <- dt[(.pre), list(.premean = mean(.y)), keyby = ".id"]
+  out <- pre$.premean[match(units$.id, pre$.id)]
+  # treated units with no pre-treatment periods average over nothing
+  out[units$.npre == 0] <- NaN
+  # never-treated units (group 0) average over all of their periods
+  never_treated <- units$.g == 0
+  out[never_treated] <- units$.allmean[never_treated]
+  # keyby sorts units by id, which can differ from df's row order; realign
+  # by id rather than assuming df's rows are already grouped that way.
+  out[match(dt$.id, units$.id)]
 }
 
 #' @title get_lagYi
@@ -1390,10 +1491,13 @@ get_Yibar_pre <- function(df, idname, yname, tname, gname) {
 #' dta$lag_y <- get_lagYi(dta, idname = "id", yname = "y", tname = "t")
 #' @export
 get_lagYi <- function(df, idname, yname, tname, nlags = 1) {
-  df <- df |>
-    dplyr::group_by(.data[[idname]]) |>
-    dplyr::mutate(.lag = dplyr::lag(.data[[yname]], nlags, order_by = .data[[tname]]))
-  df$.lag
+  y <- df[[yname]]
+  # Sort once by (id, time), shift within unit, then scatter the result back
+  # into the original row order.
+  ord <- order(df[[idname]], df[[tname]])
+  sorted <- data.table::data.table(.id = df[[idname]][ord], .y = y[ord])
+  y[ord] <- sorted[, data.table::shift(.y, n = nlags), by = ".id"]$V1
+  y
 }
 
 #' @title get_first_difference
@@ -1411,8 +1515,7 @@ get_lagYi <- function(df, idname, yname, tname, nlags = 1) {
 #' dy <- get_first_difference(dta, idname = "id", yname = "y", tname = "t")
 #' @export
 get_first_difference <- function(df, idname, yname, tname) {
-  df$.lag <- get_lagYi(df, idname, yname, tname)
-  df[, yname] - df$.lag
+  df[[yname]] - get_lagYi(df, idname, yname, tname)
 }
 
 #' @title time_invariant_to_panel
@@ -1458,25 +1561,38 @@ time_invariant_to_panel <- function(x, df, idname, balanced_panel = TRUE) {
 
 #' @title check_staggered_inner
 #'
-#' @description A helper function to check if treatment is staggered in a panel data set.
+#' @description A helper function to check whether treatment is absorbing for
+#'  a single unit; that is, whether the unit never reverts from treated back
+#'  to untreated.
 #'
 #' @inheritParams get_group_inner
+#' @param tname name of column that holds the time period.  If supplied, the
+#'  unit's rows are sorted by it before checking.  If `NULL` (the default),
+#'  the rows are assumed to already be in time order.
 #'
 #' @keywords internal
 #' @export
-check_staggered_inner <- function(this_df, treatname) {
+check_staggered_inner <- function(this_df, treatname, tname = NULL) {
   this_df <- as.data.frame(this_df)
-  is_staggered <- TRUE
-  if (length(unique(this_df[, treatname])) > 1) is_staggered <- FALSE
-  if (any(diff(this_df[, treatname]) < 0)) is_staggered <- FALSE
-  is_staggered
+  treat <- this_df[, treatname]
+  if (!is.null(tname)) {
+    treat <- treat[order(this_df[, tname])]
+  }
+  # treatment is staggered as long as it is absorbing, i.e. as long as it
+  # never switches back off from one period to the next
+  !any(diff(treat) < 0, na.rm = TRUE)
 }
 
 #' @title check_staggered
 #'
-#' @description A function to check if treatment is staggered in a panel data set.
+#' @description A function to check whether treatment is staggered in a panel
+#'  data set; that is, whether treatment is absorbing, so that no unit ever
+#'  reverts from treated back to untreated.
 #'
 #' @inheritParams get_group
+#' @param tname name of column that holds the time period.  If supplied, each
+#'  unit's rows are sorted by it before checking.  If `NULL` (the default),
+#'  the rows are assumed to already be in time order.
 #'
 #' @examples
 #' n <- 50
@@ -1487,14 +1603,30 @@ check_staggered_inner <- function(this_df, treatname) {
 #' dta <- data.frame(id = id, t = t, treat = treat)
 #' check_staggered(dta, idname = "id", treatname = "treat")
 #'
+#' ## treatment that switches back off is not staggered
+#' dta_rev <- data.frame(
+#'   id = c(1, 1, 2, 2), t = c(1, 2, 1, 2), treat = c(0, 1, 1, 0)
+#' )
+#' check_staggered(dta_rev, idname = "id", treatname = "treat")
+#'
 #' @return a logical indicating whether treatment is staggered
 #' @export
-check_staggered <- function(df, idname, treatname) {
-  this_staggered <- df |>
-    group_by(.data[[idname]]) |>
-    group_map(~ check_staggered_inner(.x, treatname)) |>
-    unlist()
-  all(this_staggered)
+check_staggered <- function(df, idname, treatname, tname = NULL) {
+  id <- df[[idname]]
+  treat <- df[[treatname]]
+  if (length(treat) < 2L) {
+    return(TRUE)
+  }
+  # bring each unit's rows together, in time order when tname is supplied.
+  # order() is stable, so rows otherwise keep the order they came in.
+  ord <- if (is.null(tname)) order(id) else order(id, df[[tname]])
+  id <- id[ord]
+  treat <- treat[ord]
+  # mirrors check_staggered_inner(): within a unit, treatment must never fall
+  # from one period to the next
+  fell <- treat < data.table::shift(treat)
+  first_of_unit <- c(TRUE, id[-1L] != id[-length(id)])
+  !any(fell & !first_of_unit, na.rm = TRUE)
 }
 
 #' Matrix-Vector Multiplication
@@ -1672,26 +1804,32 @@ get_principal_components <- function(
   for (i in seq_len(ncol(X))) {
     this_x_name <- colnames(X)[i]
     x <- X[, i]
-    df <- data.frame(.id = data[[idname]], .time = data[[tname]], x)
-    wide_data <- df |> pivot_wider(id_cols = .id, names_from = .time, names_prefix = "_x_", values_from = x)
-    .id <- wide_data$.id # nolint: object_name_linter. dot-prefix col name from pivot_wider
-    pca_inner <- wide_data |>
-      select(starts_with("_x_")) |>
-      prcomp(center = FALSE, scale. = FALSE)
+    df <- data.table::data.table(.id = data[[idname]], .time = data[[tname]], x = x)
+    wide_data <- data.table::dcast(df, .id ~ .time, value.var = "x")
+    .id <- wide_data$.id # nolint: object_name_linter. dot-prefix col name from dcast
+    pca_inner <- prcomp(
+      as.matrix(wide_data[, !".id"]),
+      center = FALSE, scale. = FALSE
+    )
     princ_comp <- pca_inner$x[, 1:n_components]
     colnames(princ_comp) <- paste0(this_x_name, "_", colnames(princ_comp))
     pc_list[[i]] <- princ_comp
   }
   pc_data <- do.call(cbind.data.frame, pc_list)
-  if (ret_id) {
-    pc_data <- cbind.data.frame(.id, pc_data)
-  }
+  # dcast() sorts rows by .id, which can differ from the order units first
+  # appear in `data`; keep .id attached so the long-format output below can
+  # be realigned to each row's own unit instead of assumed positionally.
+  pc_data <- cbind.data.frame(.id, pc_data)
 
   if (ret_wide) {
+    if (!ret_id) pc_data$.id <- NULL
     return(pc_data)
-  } else {
-    return(pc_data[rep(seq_len(nrow(pc_data)), each = nperiods), ])
   }
+
+  out <- pc_data[match(data[[idname]], pc_data$.id), , drop = FALSE]
+  rownames(out) <- NULL
+  if (!ret_id) out$.id <- NULL
+  out
 }
 
 #' @title weighted_combine_list
