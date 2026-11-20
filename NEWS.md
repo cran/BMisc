@@ -1,3 +1,56 @@
+# BMisc 1.4.11
+
+  * Bug fix: `get_group()` returned the period of a unit's first treated
+    *row* rather than its earliest treated *period*, so it gave the wrong
+    group when a unit's rows were not sorted by time. It now sorts by time
+    first. Data sorted by unit and time were unaffected.
+
+  * Documented the return values of `get_group()`, `get_YiGmin1()`,
+    `get_Yi1()`, `get_Yibar()`, `get_Yibar_pre()`, `get_lagYi()` and
+    `get_first_difference()`, and turned on Markdown in the documentation,
+    so code in the help pages is no longer shown with literal backticks.
+
+  * `multiplier_bootstrap()` is faster (#9, thanks to @kylebutts). It reads
+    the influence function once, in blocks of rows, instead of once per
+    bootstrap draw. With R's default (reference) BLAS it is about 1.3-1.5
+    times faster; with an optimized BLAS (Accelerate, OpenBLAS, MKL) each
+    block is a single matrix multiplication, which is several times faster
+    again. The new `method` argument chooses between the two ("auto", the
+    default, decides from the BLAS R uses). The Rademacher weights are now
+    drawn differently, so for a given seed the bootstrap draws, and hence
+    bootstrap standard errors and critical values in packages such as
+    `did`, differ slightly from earlier versions.
+
+  * `combine_ecdfs()` now computes the mixture exactly when `y.seq` is
+    omitted (its new default): the mixture of step functions is a step
+    function with a jump at every support point of every component, which
+    are stacked, sorted and summed, at the cost of one sort. Quantiles of
+    the result are then exact; on a grid `y.seq` they were rounded to the
+    grid. Supplying `y.seq` gives the previous behavior.
+
+  * `quantile()` now gives correct results for distribution functions made
+    by `make_dist()`, `weighted_ecdf()` and `combine_ecdfs()` (#10). These
+    objects have a new class, `BMisc_dist` (they are still `ecdf` objects),
+    with a `quantile()` method that inverts the distribution function
+    directly: the smallest point where it reaches the probability. Before,
+    `quantile()` used `stats:::quantile.ecdf()`, which is only exact for
+    `stats::ecdf()`; with ties or unequal weights it could be badly wrong
+    (a 0/1 variable with P(1) = 0.6 had median 0). `type` is ignored, with a
+    warning unless it is 1.
+
+  * `invert_ecdf()` no longer returns the next-lower point between knots: it
+    now returns the smallest point where the distribution function reaches
+    the probability, matching `quantile(type = 1)`.
+
+  * Faster `block_boot_sample()`, `orig2t()`, `t2orig()` and `weighted_ecdf()`,
+    with the same results. On a 3,000-unit, 30-period panel,
+    `block_boot_sample()` takes 0.03 s instead of 10 s.
+    `weighted_ecdf()` agrees with the previous version to floating-point
+    precision.
+
+  * `orig2t()` and `t2orig()` now return `NA` for values that are not time
+    periods. Previously they returned a list.
+
 # BMisc 1.4.10
 
   * Smaller footprint and improved performance.

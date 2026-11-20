@@ -1,3 +1,13 @@
+# =============================================================================
+# Title: BMisc main functions
+# Description: Panel-data helpers (balancing, block bootstrap, getters),
+#   distribution helpers (weighted ECDFs, quantiles, combining ECDFs), time
+#   recoding (orig2t/t2orig), and formula utilities.
+# Author: Brant Callaway
+# Last update: 2026-11-20
+# Date created: 2017-02-07
+# =============================================================================
+
 #' @title Balance a Panel Data Set
 #'
 #' @description This function drops observations from data.frame
@@ -302,14 +312,16 @@ id2rownum <- function(id, data, idname) {
 #'
 #' @export
 block_boot_sample <- function(data, idname) {
-  ids <- sample(unique(data[, idname]), replace = TRUE)
-  newid <- seq_along(ids)
-  b1 <- lapply(seq_along(ids), function(i) {
-    bd <- data[data[, idname] == ids[i], ]
-    bd[, idname] <- newid[i]
-    bd
-  })
-  do.call(rbind, b1)
+  uid <- unique(data[, idname])
+  ids <- sample(uid, replace = TRUE)
+  # Group row indices by id once and stack the sampled groups, instead of
+  # scanning every row for each sampled id (O(n_ids x n_rows)). Rows, their
+  # order, and the new ids are the same as stacking the per-id subsets.
+  rows <- split(seq_len(nrow(data)), factor(data[, idname], levels = uid))
+  pos <- match(ids, uid)
+  out <- data[unlist(rows[pos], use.names = FALSE), , drop = FALSE]
+  out[, idname] <- rep(seq_along(ids), lengths(rows)[pos])
+  out
 }
 
 #' @title blockBootSample
@@ -382,9 +394,77 @@ make_dist <- function(
     method = method,
     yleft = 0, yright = 1, f = 0, ties = "ordered"
   )
-  class(retF) <- c("ecdf", "stepfun", class(retF))
+  # "BMisc_dist" first, so quantile() uses quantile.BMisc_dist(), which
+  # inverts the distribution function directly. stats:::quantile.ecdf()
+  # rebuilds a sample by repeating each point round(nobs * mass) times,
+  # which is only exact for stats::ecdf() (nobs = sample size); here nobs
+  # is the number of points, so with ties or unequal weights it was wrong
+  # (e.g. a 0/1 variable with P(1) = 0.6 had median 0).
+  class(retF) <- c("BMisc_dist", "ecdf", "stepfun", class(retF))
   assign("nobs", length(x), envir = environment(retF))
   retF
+}
+
+#' @title Quantiles of a Distribution Function
+#'
+#' @description Quantiles of a distribution function created by
+#'   \code{\link{make_dist}} (and so by \code{\link{weighted_ecdf}} and
+#'   \code{\link{combine_ecdfs}}), computed by inverting it directly: for a
+#'   step function, the smallest support point \eqn{y} with
+#'   \eqn{F(y) \ge p} (the generalized inverse, \code{type = 1} in
+#'   \code{\link[stats]{quantile}}); for \code{method = "linear"}, the
+#'   inverse of the piecewise-linear \eqn{F}.
+#'
+#'   Sample-quantile types other than 1 interpolate between order statistics
+#'   of a sample, which a weighted distribution function doesn't have, so
+#'   \code{type} is ignored (with a warning if it isn't 1).
+#'
+#' @param x a distribution function from \code{\link{make_dist}}.
+#' @param probs numeric vector of probabilities in \eqn{[0, 1]}.
+#' @param names logical; if \code{TRUE}, name the result by \code{probs},
+#'   as \code{\link[stats]{quantile}} does.
+#' @param ... ignored, except \code{type} (see Description).
+#'
+#' @examples
+#' F <- weighted_ecdf(c(0, 1), weights = c(0.4, 0.6))
+#' quantile(F, 0.5) # 1
+#'
+#' @return numeric vector of quantiles.
+#' @export
+quantile.BMisc_dist <- function(x, probs = seq(0, 1, 0.25), names = TRUE,
+                                ...) {
+  type <- list(...)$type
+  if (!is.null(type) && !identical(as.numeric(type), 1)) {
+    warning("quantile() of a BMisc distribution function inverts it ",
+            "directly (type = 1); type = ", type, " is ignored.",
+            call. = FALSE)
+  }
+  if (any(probs < 0 | probs > 1, na.rm = TRUE)) {
+    stop("'probs' outside [0,1]")
+  }
+  knots_x <- sort(unique(environment(x)$x))
+  # running maximum: sums of weighted CDFs (combine_ecdfs()) can dip by
+  # floating-point error, e.g. 1 then 1 - 1e-16
+  cdf <- cummax(x(knots_x))
+  # tolerance so a probability equal to a cumulative sum up to rounding
+  # (e.g. 0.1 + 0.2 vs 0.3) lands on that point, not the next one
+  idx <- findInterval(probs - 1e-10, cdf) + 1L
+  idx <- pmin(idx, length(knots_x)) # F short of 1 by rounding: last point
+  out <- knots_x[idx]
+  # approxfun() stores its method as an integer code: 1 linear, 2 constant
+  if (identical(environment(x)$method, 1L)) {
+    # interpolate within the segment where F crosses p
+    prev <- pmax(idx - 1L, 1L)
+    seg <- idx > 1L & cdf[idx] > cdf[prev]
+    out[seg] <- knots_x[prev[seg]] + (probs[seg] - cdf[prev[seg]]) /
+      (cdf[idx[seg]] - cdf[prev[seg]]) * (knots_x[idx[seg]] - knots_x[prev[seg]])
+  }
+  out[is.na(probs)] <- NA
+  if (names) {
+    names(out) <- paste0(formatC(100 * probs, format = "fg", width = 1,
+                                 digits = 7), "%")
+  }
+  out
 }
 
 #' @title makeDist
@@ -435,8 +515,12 @@ makeDist <- function(
 invert_ecdf <- function(df) {
   q <- knots(df)
   tau <- df(q)
-  q <- c(q[1], q)
-  stepfun(tau, q)
+  # right = TRUE with values (q_1, ..., q_n, q_n): p <= tau_1 gives q_1 and
+  # p in (tau_k, tau_{k+1}] gives q_{k+1}, the smallest point with F >= p.
+  # This used to be stepfun(tau, c(q_1, q)), which returned q_k on
+  # [tau_k, tau_{k+1}), one step too low between knots (e.g. median 0 for a
+  # 0/1 variable with P(1) = 0.6).
+  stepfun(tau, c(q, q[length(q)]), right = TRUE)
 }
 
 #' @title invertEcdf
@@ -660,9 +744,19 @@ weighted_ecdf <- function(y, y.seq = NULL, weights = NULL, norm = TRUE) {
     y.seq <- unique(y)
     y.seq <- y.seq[order(y.seq)]
   }
-  dvals <- vapply(y.seq, FUN = function(x) {
-    mean(weights * (y <= x))
-  }, 1.0)
+  weights <- rep_len(weights, length(y))
+  if (anyNA(y) || anyNA(weights) || anyNA(y.seq)) {
+    # missing values propagate as before; findInterval() needs non-NA input
+    dvals <- vapply(y.seq, FUN = function(x) {
+      mean(weights * (y <= x))
+    }, 1.0)
+  } else {
+    # F(x) = mean(w * 1{y <= x}): sort once and read cumulative weights at
+    # each x, instead of a pass over y for every x (O(n log n), not O(n^2)).
+    o <- order(y)
+    cw <- c(0, cumsum(weights[o]))
+    dvals <- cw[findInterval(y.seq, y[o]) + 1L] / length(y)
+  }
   make_dist(y.seq, dvals)
 }
 
@@ -991,14 +1085,31 @@ dropCovFromFormla <- function(covs, formla) {
   drop_cov_from_formula(covs = covs, formula = formla)
 }
 
-#' @title Combine Two Distribution Functions
+#' @title Combine Distribution Functions
 #'
-#' @description Combines two distribution functions with given weights by `weights`
-#' @param y.seq sequence of possible y values
+#' @description Combines distribution functions into their mixture
+#'  \eqn{F(y) = \sum_c w_c F_c(y)}, with weights given by `weights`.
+#'
+#'  By default (`y.seq = NULL`) the mixture is exact: when every
+#'  distribution function is a step function (as from [stats::ecdf()],
+#'  [weighted_ecdf()] or [make_dist()]), so is the mixture, with a jump at
+#'  each support point \eqn{y_{cj}} of each \eqn{F_c} equal to
+#'  \eqn{w_c} times the jump of \eqn{F_c} there. These are stacked and
+#'  sorted, and their cumulative sums give the mixture at every support
+#'  point. `quantile()` of the result is then exact as well.
+#'
+#'  With `y.seq`, the mixture is instead evaluated only at the points
+#'  `y.seq` (as in BMisc 1.4.10 and earlier), and its quantiles are rounded
+#'  to those points; this also works for distribution functions that are
+#'  not step functions.
+#'
+#' @param y.seq `NULL` (the default) for the exact mixture, or a sequence of
+#'  y values at which to evaluate it
 #' @param ecdflist list of ecdf objects (distribution functions) to combine
-#' @param weights a vector of weights to put on each distribution function;
-#'  if weights are not provided then equal weight is given to each
-#'  distribution function
+#' @param weights a vector of weights to put on each distribution function,
+#'  which should sum to 1; if weights are not provided then equal weight is
+#'  given to each distribution function. Distribution functions with weight
+#'  0 are skipped in the exact mixture.
 #' @param ... additional arguments that can be past to BMisc::make_dist
 #'
 #' @examples
@@ -1006,14 +1117,18 @@ dropCovFromFormla <- function(covs, formla) {
 #' y <- rnorm(100, 1, 1)
 #' Fx <- ecdf(x)
 #' Fy <- ecdf(y)
-#' both <- combine_ecdfs(seq(-2, 3, 0.1), list(Fx, Fy))
+#' both <- combine_ecdfs(ecdflist = list(Fx, Fy))
+#' quantile(both, 0.5) # exact median of the mixture
 #' plot(Fx, col = "green")
 #' plot(Fy, col = "blue", add = TRUE)
 #' plot(both, add = TRUE)
 #'
-#' @return ecdf
+#' # evaluated on a grid only
+#' both_grid <- combine_ecdfs(seq(-2, 3, 0.1), list(Fx, Fy))
+#'
+#' @return ecdf (a `BMisc_dist` object, see [make_dist()])
 #' @export
-combine_ecdfs <- function(y.seq, ecdflist, weights = NULL, ...) {
+combine_ecdfs <- function(y.seq = NULL, ecdflist, weights = NULL, ...) {
   # Handle deprecated 'dflist' argument name passed via ...
   extra_args <- list(...)
   if ("dflist" %in% names(extra_args)) {
@@ -1040,6 +1155,12 @@ combine_ecdfs <- function(y.seq, ecdflist, weights = NULL, ...) {
   if (is.null(weights)) {
     weights <- rep(1 / length(ecdflist), length(ecdflist))
   }
+  if (length(weights) != length(ecdflist)) {
+    stop("combine_ecdfs: weights must have one value per element of ecdflist")
+  }
+  if (is.null(y.seq)) {
+    return(do.call(mix_ecdfs_exact, c(list(ecdflist, weights), extra_args)))
+  }
   y.seq <- y.seq[order(y.seq)]
   df.valslist <- lapply(ecdflist, function(ddff) {
     ddff(y.seq)
@@ -1052,6 +1173,40 @@ combine_ecdfs <- function(y.seq, ecdflist, weights = NULL, ...) {
   df.vals <- rowSums(df.valsmat)
 
   do.call(make_dist, c(list(y.seq, df.vals), extra_args))
+}
+
+# --- Internal: exact mixture of step-function distribution functions -------
+# mix_ecdfs_exact(): the mixture sum_c w_c F_c of step functions, exactly.
+#   Each F_c jumps at its support points y_cj (knots()) by
+#   p_cj = F_c(y_cj) - F_c(y_c,j-1); the mixture jumps by w_c * p_cj there.
+#   Stacking, sorting and taking cumulative sums gives the mixture at every
+#   support point, at the cost of one sort, rather than evaluating every
+#   F_c on a grid (which rounds quantiles to the grid) or at every pooled
+#   point (quadratic). Arguments: ecdflist, weights (as in combine_ecdfs()),
+#   and ... passed to make_dist(). Returns a make_dist() object.
+mix_ecdfs_exact <- function(ecdflist, weights, ...) {
+  use <- which(!is.na(weights) & weights != 0)
+  if (length(use) == 0) {
+    stop("combine_ecdfs: all weights are 0 or NA")
+  }
+  linear <- vapply(ecdflist[use], function(f) {
+    identical(environment(f)$method, 1L)
+  }, logical(1L))
+  if (any(linear)) {
+    stop("combine_ecdfs: the exact mixture needs step functions; for ",
+         "make_dist(method = \"linear\") distribution functions, pass y.seq")
+  }
+  x <- lapply(ecdflist[use], stats::knots)
+  p <- Map(function(f, xx, w) w * diff(c(0, f(xx))), ecdflist[use], x,
+           weights[use])
+  x <- unlist(x, use.names = FALSE)
+  p <- unlist(p, use.names = FALSE)
+  o <- order(x)
+  x <- x[o]
+  cdf <- cumsum(p[o])
+  # one value per support point: the mixture at the last of tied points
+  last <- !duplicated(x, fromLast = TRUE)
+  make_dist(x[last], cdf[last], sorted = TRUE, ...)
 }
 
 #' @title combineDfs
@@ -1202,7 +1357,8 @@ get_group_inner <- function(this_df, tname, treatname) {
     return(0)
   }
 
-  as.numeric(this_df[this_df[, treatname] > 0, ][1, tname])
+  # the earliest treated period, whatever the row order
+  as.numeric(min(this_df[this_df[, treatname] > 0, tname]))
 }
 
 #' @title get_group
@@ -1222,6 +1378,9 @@ get_group_inner <- function(this_df, tname, treatname) {
 #' dta <- data.frame(id = id, t = t, treat = treat)
 #' dta$group <- get_group(dta, idname = "id", tname = "t", treatname = "treat")
 #' head(unique(dta[, c("id", "group")]))
+#' @return a numeric vector with one element per row of `df`: the unit's
+#'  group, i.e. the first period in which it is treated, or 0 for units that
+#'  are never treated
 #' @export
 get_group <- function(df, idname, tname, treatname) {
   dt <- data.table::data.table(
@@ -1229,8 +1388,9 @@ get_group <- function(df, idname, tname, treatname) {
   )
   dt[, .nz := .tr != 0]
   units <- dt[, list(.n = .N, .nonzero = sum(.nz)), keyby = ".id"]
-  # a unit's group is the first period in which it is observed as treated
-  first_treated <- unique(dt[.tr > 0], by = ".id")
+  # a unit's group is the first period in which it is observed as treated;
+  # sort by time first, since rows need not be in time order within a unit
+  first_treated <- unique(dt[.tr > 0][order(.id, .t)], by = ".id")
   out <- as.numeric(first_treated$.t[match(units$.id, first_treated$.id)])
   # units that are untreated in every period belong to group 0
   out[units$.nonzero == 0] <- 0
@@ -1281,6 +1441,9 @@ get_YiGmin1_inner <- function(this_df, yname, tname, gname) {
 #' dta$YiGmin1 <- get_YiGmin1(dta, idname = "id", yname = "y",
 #'                             tname = "t", gname = "group")
 #' head(unique(dta[, c("id", "group", "YiGmin1")]))
+#' @return a vector with one element per row of `df`: the unit's value of
+#'  `yname` in period `group - 1` (in its last period if `group` is 0), or
+#'  `NA` if the unit is not observed in that period
 #' @export
 get_YiGmin1 <- function(df, idname, yname, tname, gname) {
   dt <- data.table::data.table(
@@ -1324,6 +1487,8 @@ get_Yi1_inner <- function(this_df, yname, tname, gname) {
 #' g <- rep(sample(c(0, 2, 3), n, replace = TRUE), each = 4)
 #' dta <- data.frame(id = id, t = t, y = y, group = g)
 #' dta$Yi1 <- get_Yi1(dta, idname = "id", yname = "y", tname = "t", gname = "group")
+#' @return a vector with one element per row of `df`: the unit's value of
+#'  `yname` in the first period in which it is observed
 #' @export
 get_Yi1 <- function(df, idname, yname, tname, gname) {
   dt <- data.table::data.table(.id = df[[idname]], .y = df[[yname]], .t = df[[tname]])
@@ -1405,6 +1570,8 @@ get_Yibar_inner <- function(this_df, yname) {
 #' y <- rnorm(n * 4)
 #' dta <- data.frame(id = id, t = t, y = y)
 #' dta$Yibar <- get_Yibar(dta, idname = "id", yname = "y")
+#' @return a numeric vector with one element per row of `df`: the unit's
+#'  average of `yname` over all of its periods
 #' @export
 get_Yibar <- function(df, idname, yname) {
   dt <- data.table::data.table(.id = df[[idname]], .y = df[[yname]])
@@ -1454,6 +1621,10 @@ get_Yibar_pre_inner <- function(this_df, yname, tname, gname) {
 #' dta <- data.frame(id = id, t = t, y = y, group = g)
 #' dta$Yibarpre <- get_Yibar_pre(dta, idname = "id", yname = "y",
 #'                                tname = "t", gname = "group")
+#' @return a numeric vector with one element per row of `df`: the unit's
+#'  average of `yname` over periods before its group (over all periods for
+#'  never-treated units, `NaN` for treated units with no pre-treatment
+#'  periods)
 #' @export
 get_Yibar_pre <- function(df, idname, yname, tname, gname) {
   dt <- data.table::data.table(
@@ -1489,6 +1660,9 @@ get_Yibar_pre <- function(df, idname, yname, tname, gname) {
 #' y <- rnorm(n * 4)
 #' dta <- data.frame(id = id, t = t, y = y)
 #' dta$lag_y <- get_lagYi(dta, idname = "id", yname = "y", tname = "t")
+#' @return a vector with one element per row of `df`: the value of `yname`
+#'  `nlags` periods earlier for the same unit (ordered by `tname`), `NA` for
+#'  each unit's first `nlags` periods
 #' @export
 get_lagYi <- function(df, idname, yname, tname, nlags = 1) {
   y <- df[[yname]]
@@ -1513,6 +1687,9 @@ get_lagYi <- function(df, idname, yname, tname, nlags = 1) {
 #' y <- rnorm(n * 4)
 #' dta <- data.frame(id = id, t = t, y = y)
 #' dy <- get_first_difference(dta, idname = "id", yname = "y", tname = "t")
+#' @return a vector with one element per row of `df`: the change in `yname`
+#'  from the unit's previous period (ordered by `tname`), `NA` for each
+#'  unit's first period
 #' @export
 get_first_difference <- function(df, idname, yname, tname) {
   df[[yname]] - get_lagYi(df, idname, yname, tname)
@@ -1692,7 +1869,8 @@ orig2t_inner <- function(orig, original_time.periods) {
 #' original_time.periods <- c(2001, 2003, 2005, 2007)
 #' t2orig(1:4, original_time.periods) ## returns c(2001, 2003, 2005, 2007)
 #'
-#' @return original time period converted from new time period
+#' @return original time period converted from new time period; \code{NA}
+#'  for values of \code{t} that do not correspond to a time period.
 #'
 #' @export
 t2orig <- function(t, original_time.periods) {
@@ -1700,7 +1878,10 @@ t2orig <- function(t, original_time.periods) {
   if (length(unique(diff(original_time.periods))) > 1) {
     warning("original_time.periods are unequally spaced, some downstream functions may not work as expected.")
   }
-  sapply(t, t2orig_inner, original_time.periods = original_time.periods)
+  # vectorized t2orig_inner(): new period k maps to the k-th unique original
+  # period, and 0 (never treated) maps to 0
+  new_time.periods <- c(seq_along(unique(original_time.periods)), 0)
+  unique(c(original_time.periods, 0))[match(t, new_time.periods)]
 }
 
 #' @title orig2t
@@ -1717,7 +1898,9 @@ t2orig <- function(t, original_time.periods) {
 #' original_time.periods <- c(2001, 2003, 2005, 2007)
 #' orig2t(c(2001, 2005), original_time.periods) ## returns c(1, 3)
 #'
-#' @return new time period converted from original time period
+#' @return new time period converted from original time period; \code{NA}
+#'  for values of \code{orig} that are not among \code{original_time.periods}
+#'  (or 0).
 #'
 #' @export
 orig2t <- function(orig, original_time.periods) {
@@ -1725,7 +1908,10 @@ orig2t <- function(orig, original_time.periods) {
   if (length(unique(diff(original_time.periods))) > 1) {
     warning("original_time.periods are unequally spaced, some downstream functions may not work as expected.")
   }
-  sapply(orig, orig2t_inner, original_time.periods = original_time.periods)
+  # vectorized orig2t_inner(): the k-th unique original period maps to k,
+  # and 0 (never treated) maps to 0
+  new_time.periods <- c(seq_along(unique(original_time.periods)), 0)
+  new_time.periods[match(orig, unique(c(original_time.periods, 0)))]
 }
 
 #' @title drop_collinear
@@ -1772,8 +1958,8 @@ drop_collinear <- function(matrix) {
 #' @param n_components the number of principal components to retain, the default is NULL which
 #'  will result in all principal components being retained
 #' @param ret_wide whether to return the data in wide format (where the number of rows
-#'  is equal to n = length(unique(data[[idname]])) or long format (where the number
-#'  of rows is equal to nT = nrow(data)).  The default is FALSE, so that long data
+#'  is equal to `n = length(unique(data[[idname]]))` or long format (where the number
+#'  of rows is equal to `nT = nrow(data)`).  The default is FALSE, so that long data
 #'  is returned by default.
 #' @param ret_id whether to return the id column in the output data.frame.  The default is FALSE.
 #' @examples

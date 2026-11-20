@@ -18,13 +18,18 @@ for which to calculate its outcome in the immediate pre-treatment period}
 
 \item{gname}{name of column containing the unit's group}
 }
+\value{
+a vector with one element per row of \code{df}: the unit's value of
+\code{yname} in period \code{group - 1} (in its last period if \code{group} is 0), or
+\code{NA} if the unit is not observed in that period
+}
 \description{
 A function to calculate outcomes for units in the period
- right before they become treated (this function can also be used to recover
- covariates, etc. in the period right before a unit becomes treated).
- For units that do not
- participate in the treatment (and therefore have group==0), they are
- assigned their outcome in the last period.
+right before they become treated (this function can also be used to recover
+covariates, etc. in the period right before a unit becomes treated).
+For units that do not
+participate in the treatment (and therefore have group==0), they are
+assigned their outcome in the last period.
 }
 \examples{
 n <- 50

@@ -18,13 +18,19 @@ for which to calculate its outcome in the immediate pre-treatment period}
 
 \item{gname}{name of column containing the unit's group}
 }
+\value{
+a numeric vector with one element per row of \code{df}: the unit's
+average of \code{yname} over periods before its group (over all periods for
+never-treated units, \code{NaN} for treated units with no pre-treatment
+periods)
+}
 \description{
 A function to calculate average outcomes for units in
- their pre-treatment periods (this function can also be used to recover
- pre-treatment averages of covariates, etc.).
- For units that do not
- participate in the treatment (and therefore have group==0), the
- function calculates their overall average outcome.
+their pre-treatment periods (this function can also be used to recover
+pre-treatment averages of covariates, etc.).
+For units that do not
+participate in the treatment (and therefore have group==0), the
+function calculates their overall average outcome.
 }
 \examples{
 n <- 50
